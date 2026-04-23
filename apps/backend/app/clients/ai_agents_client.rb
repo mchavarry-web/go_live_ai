@@ -54,11 +54,18 @@ class AiAgentsClient
 
   # ── Insights / memory ─────────────────────────────────────────────────
 
+  # FastAPI exposes one endpoint per platform shape, not a single generic one.
+  #   instagram → /internal/insights/extract-instagram
+  #   facebook|twitter|spotify → /internal/insights/extract-social
+  # Rails normalises this so callers just pass `platform:`.
   def extract_insights(platform:, user_id:, payload:)
-    post_json(
-      "/internal/insights/extract",
-      { platform: platform, user_id: user_id, payload: payload }
-    )
+    path = case platform
+           when "instagram" then "/internal/insights/extract-instagram"
+           else                  "/internal/insights/extract-social"
+           end
+    body = { user_id: user_id, platform: platform }
+    body[:data] = payload if payload.is_a?(Hash) && payload.any?
+    post_json(path, body, timeout: 60)
   end
 
   def list_insights(user_id)

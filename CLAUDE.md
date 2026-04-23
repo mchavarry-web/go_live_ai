@@ -140,7 +140,8 @@ yarn lint && yarn test
 - Phase 0 (scaffold) — **✔ complete**. Monorepo boots; FastAPI guard verified; Rails + pgvector DB wired.
 - Phase 1 (auth + data model) — **✔ complete**. User schema extended with country/timezone/lat/lng/last_proactive_skill/last_proactive_at/formality_level/onboarding_completed_at/provider/provider_uid; `Avatar` model (1:1 with User, knowledge_level 1-10 + appearance/behavior jsonb); `Api::V1::AuthController` covers email sign_in/sign_up, Google/Apple/Facebook (server-side provider-token verification — Google/Apple via JWKS, Facebook via Graph API), refresh, me, sign_out; `Api::V1::OnboardingController` (status/complete/reset); CanCanCan `Ability` updated for Avatar; `user` role added to seeds.
 - Phase 2 (chat + AI integration) — **✔ complete**. `Conversation` (UUID, `belongs_to :user`, `last_active_at` touched by each new message) + `Message` (UUID, role enum user|assistant|system, content, jsonb metadata, proactive_skill nullable); `Api::V1::ConversationsController` (index/show/create/destroy) and `MessagesController` (index/create) under `/api/v1/chat/conversations`; `ChatChannel` (`stream_from "chat:<conv_id>"`, auth via `current_user.conversations.find_by`); `ChatGenerationJob` (Sidekiq) calls `AiAgentsClient#stream_chat` and broadcasts deltas/message/done/error on the channel; ActionCable mounted at `/cable` with JWT-in-query-param auth; ActiveJob adapter set to `:sidekiq` globally.
-- Phase 3 (social + ingestion) — **next**. `SocialConnection` + per-platform controllers (Instagram/Facebook/Twitter/Spotify) covering status reads + ingest/extract writes; Sidekiq ingestion jobs that fire `AiAgentsClient#extract_insights` on completion.
+- Phase 3 (social + ingestion) — **✔ complete**. `SocialConnection` (UUID, unique per user+provider) with Rails-8 ActiveRecord encryption on `access_token` + `refresh_token`; per-platform flat controllers (`InstagramController`, `FacebookController`, `TwitterController`, `SpotifyController`) sharing an `Api::V1::SocialBaseController` that provides `status`/`disconnect`/`extract_insights`; Spotify full server-side OAuth flow (`auth_url` w/ signed state, `callback` exchanges code); Instagram upload-based ingestion; Sidekiq jobs `InstagramIngestJob`, `FetchSocialDataJob` (per-provider Graph/Web-API pulls), and `ExtractInsightsJob` chained via `AiAgentsClient#extract_insights` which routes to `/internal/insights/extract-instagram` or `/extract-social` per platform.
+- Phase 4 (proactive + notifications) — **next**. `ProactiveSkillRegistry` port (from the Django `apps/chat/proactive_skills.py`), proactive-greeting endpoint, `DeviceToken` model, FCM push job, scheduled triggers via the Whenever gem.
 
 See `../PORT_PLAN.md` §10 for the full phase roadmap.
 
@@ -193,3 +194,29 @@ recv       { type: "error",   message: "..." }                  // on failure
 Flow: Expo `POST` → `MessagesController#create` persists user message + enqueues `ChatGenerationJob` → job calls `AiAgentsClient#stream_chat` (parses FastAPI SSE frames `data: ...\n\n`) → each chunk is broadcast as `{type: "delta"}` → accumulated content is persisted as an assistant `Message` → final `{type: "message"}` + `{type: "done"}`. If the stream is empty (e.g. missing `OPENAI_API_KEY`), the job persists a placeholder assistant message and broadcasts `{type: "error"}` — no exception leaks.
 
 **ActiveJob adapter is Sidekiq in every environment** (`config/application.rb`). Don't set it per-env.
+
+## Social connections quick reference
+
+Flat per-platform routes under `/api/v1/`:
+
+| Route | Instagram | Facebook | Twitter | Spotify |
+|---|:---:|:---:|:---:|:---:|
+| `GET  <p>/status`           | ✓ | ✓ | ✓ | ✓ |
+| `POST <p>/ingest`           | upload payload | paste access_token | paste access_token | enqueue `FetchSocialDataJob` |
+| `POST <p>/extract`          | ✓ | ✓ | ✓ | ✓ |
+| `DELETE <p>`                | ✓ | ✓ | ✓ | ✓ |
+| `GET  spotify/auth_url`     | — | — | — | ✓ (full OAuth) |
+| `GET  spotify/callback`     | — | — | — | ✓ |
+
+`SocialConnection` stores the OAuth state: `provider`, `external_user_id`, `access_token` (**encrypted**), `refresh_token` (**encrypted**), `scopes`, `expires_at`, `metadata` jsonb. `User` has `has_many :social_connections`.
+
+Spotify OAuth lives in `app/services/social/spotify_oauth.rb`: `authorize_url(state:)` + `exchange_code!(code)` which persists the connection and its Spotify-provided profile (display_name, country, email) into `metadata`. State is a Redis-cached nonce (10-min TTL) tied to `current_user.id` so the callback can re-identify the user without a JWT. On successful callback we auto-enqueue `ExtractInsightsJob` so insights populate immediately.
+
+Job chain:
+- `InstagramIngestJob(user_id:, payload:)` → `ExtractInsightsJob`
+- `FetchSocialDataJob(user_id:, provider:)` → persists raw payload on `SocialConnection.metadata.raw_data` → `ExtractInsightsJob`
+- `ExtractInsightsJob(user_id:, provider:, payload: nil)` → `AiAgentsClient#extract_insights` → FastAPI `/internal/insights/extract-instagram` (IG) or `/extract-social` (others)
+
+`AiAgentsClient#extract_insights` mirrors the FastAPI split: Instagram has its own triple-chain (`extract-instagram`), every other platform goes through the shared `extract-social`.
+
+**ActiveRecord encryption keys** are env-driven in dev via `ACTIVE_RECORD_ENCRYPTION_{PRIMARY_KEY,DETERMINISTIC_KEY,KEY_DERIVATION_SALT}` (see `config/initializers/active_record_encryption.rb`). They are **stable** — rotating any of them invalidates every existing `social_connections.access_token`/`refresh_token` row.

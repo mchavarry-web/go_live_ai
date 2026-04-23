@@ -29,6 +29,18 @@ Rails.application.routes.draw do
         end
       end
 
+      # Social connections + ingestion (flat per-platform, no Ingestion:: namespace)
+      %w[instagram facebook twitter spotify].each do |p|
+        get    "#{p}/status",  to: "#{p}#status"
+        post   "#{p}/ingest",  to: "#{p}#ingest"
+        post   "#{p}/extract", to: "#{p}#extract_insights"
+        delete "#{p}",         to: "#{p}#disconnect"
+      end
+
+      # Spotify-only OAuth endpoints
+      get "spotify/auth_url", to: "spotify#auth_url"
+      get "spotify/callback", to: "spotify#callback"
+
       # Legacy mobile sessions (kept until Expo is fully switched to /auth/*)
       namespace :mobile do
         post   "login",  to: "sessions#create"
