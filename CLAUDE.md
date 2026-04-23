@@ -36,13 +36,45 @@ Expo (ios/android/web) ──HTTPS + ActionCable──► Rails ──HTTP──
 - **Ingestion:** flat per-platform controllers (`InstagramController`, `SpotifyController`, etc.) — no `Ingestion::` namespace.
 - **Two PostgreSQL DBs on the same local server** (different DB names): `go_live_backend_development` for Rails, `go_live_ai_agents_development` for FastAPI. Rails never uses pgvector; the AI DB has the `vector` extension enabled. Production follows the same shape; Postgres runs locally on the box, not containerized.
 
+## Running locally — verified state
+
+Bootstrap passes end-to-end; all three services boot cleanly on this machine.
+
+| Service       | Port | Start command                       | Smoke check                                              |
+|---------------|-----:|-------------------------------------|----------------------------------------------------------|
+| Rails 8.1.3   | 3000 | `bin/rails server`                  | `GET /up` → **200**                                      |
+| FastAPI       | 8001 | `.venv/bin/uvicorn app.main:app`    | `GET /health` → **200** (DB connected, pgvector ready)   |
+| FastAPI guard | 8001 | `GET /internal/memory/<user_id>`    | no header → **401**; wrong token → **401**; correct → **200** |
+| Postgres 14+  | 5432 | `pg_isready`                        | `accepting connections`; 2 DBs, `vector` ext on AI DB    |
+| Redis         | 6379 | `redis-cli ping`                    | `PONG`                                                   |
+
+Copy-paste smoke tests:
+```bash
+curl http://localhost:3000/up                                                       # Rails
+curl http://localhost:8001/health                                                    # FastAPI public
+curl http://localhost:8001/internal/memory/00000000-0000-0000-0000-000000000000     # 401
+TOKEN=$(grep ^INTERNAL_TOKEN apps/ai-agents/.env | cut -d= -f2)
+curl -H "X-Internal-Token: $TOKEN" \
+     http://localhost:8001/internal/memory/00000000-0000-0000-0000-000000000000     # 200
+```
+
+## Environment pins (non-obvious, learned the hard way)
+
+- **Ruby 3.3.4 @ RVM gemset `go-live`** (dash, not underscore). `.ruby-gemset` at the monorepo root and at `apps/backend/` both contain `go-live`. Every Rails command must run under this gemset — `Procfile.dev` wraps each Ruby process in `bash -lc 'rvm use 3.3.4@go-live --create …'`.
+- **Python 3.11+ via Homebrew**, **not pyenv**. `bootstrap.sh` explicitly uses `/opt/homebrew/bin/python3.12` to create `apps/ai-agents/.venv` because the user's pyenv is pinned to 3.9.4. **Don't reintroduce `apps/ai-agents/.python-version`** — it forces pyenv back into the picture.
+- **Two `.env` files, never a root one.** `DATABASE_URL` has different values in each service, so the env split is by app: `apps/backend/.env` and `apps/ai-agents/.env`. Don't create a root `.env` — nothing reads it.
+- **Shared secret is one value, two names.** `AI_AGENTS_INTERNAL_TOKEN` (Rails) == `INTERNAL_TOKEN` (FastAPI). Must match; FastAPI fails closed with 500 if unset.
+- **Shrine falls back to local FileSystem** in dev when `S3_AWS_STORAGE_BUCKET_NAME` is unset (see `config/initializers/shrine.rb`). Production sets the S3 env vars; nothing else changes.
+- **FastAPI hatch build** needs `[tool.hatch.build.targets.wheel] packages = ["app"]` in `pyproject.toml` — the package name (`golive-ai-agents`) doesn't match the source dir (`app/`), so hatchling can't auto-detect.
+- **RVM + `set -u`** don't mix. Shell scripts that source RVM must use `set -eo pipefail`, not `set -euo`.
+
 ## Common commands
 
 ### Bootstrap (first run only)
 ```bash
 ./bootstrap.sh          # assumes local Postgres + Redis; creates DBs, installs deps
 ```
-Requires: Homebrew Postgres 16 running, pgvector available, Redis running. No Docker in dev or prod.
+Requires: Homebrew Postgres running (the running server can be 14+; pgvector available), Redis running, RVM with Ruby 3.3.4 and the `go-live` gemset, Homebrew Python 3.11+, Node 20. No Docker in dev or prod.
 
 ### Daily dev (one command starts the stack)
 ```bash
@@ -99,6 +131,7 @@ yarn lint && yarn test
 
 ## Phase status
 
-Phase 0 (scaffold) — `IN PROGRESS`. Directory structure in place; awaiting `./bootstrap.sh` to install deps and boot the stack end-to-end.
+- Phase 0 (scaffold) — **✔ complete**. Monorepo boots; FastAPI guard verified; Rails + pgvector DB wired.
+- Phase 1 (auth + data model) — **next**. Add go-live-specific `User` columns (country, timezone, proactive tracking, formality_level), `Avatar` model, onboarding endpoints, and server-side social-login verification for Google/Apple/Facebook.
 
 See `../PORT_PLAN.md` §10 for the full phase roadmap.
