@@ -26,5 +26,8 @@ module GoLive
 
     config.i18n.default_locale = :es
     config.i18n.available_locales = [:es, :en]
+
+    # Sidekiq handles every background job in all environments; tests can override.
+    config.active_job.queue_adapter = :sidekiq
   end
 end

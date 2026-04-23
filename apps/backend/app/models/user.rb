@@ -10,6 +10,8 @@ class User < ApplicationRecord
   has_many :user_roles, dependent: :destroy
   has_many :roles, through: :user_roles
   has_one  :avatar,  dependent: :destroy
+  has_many :conversations, dependent: :destroy
+  has_many :messages, through: :conversations
 
   after_create :ensure_default_role_and_avatar
 

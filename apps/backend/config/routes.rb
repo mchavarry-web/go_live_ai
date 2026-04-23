@@ -22,6 +22,13 @@ Rails.application.routes.draw do
       post "onboarding/complete", to: "onboarding#complete"
       post "onboarding/reset",    to: "onboarding#reset"
 
+      # Chat
+      scope "chat" do
+        resources :conversations, only: %i[index show create destroy] do
+          resources :messages, only: %i[index create]
+        end
+      end
+
       # Legacy mobile sessions (kept until Expo is fully switched to /auth/*)
       namespace :mobile do
         post   "login",  to: "sessions#create"
@@ -43,6 +50,9 @@ Rails.application.routes.draw do
       end
     end
   end
+
+  # ── ActionCable (JWT-authenticated via ApplicationCable::Connection) ──
+  mount ActionCable.server => "/cable"
 
   # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.
   # Can be used by load balancers and uptime monitors to verify that the app is live.

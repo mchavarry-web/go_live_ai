@@ -139,7 +139,8 @@ yarn lint && yarn test
 
 - Phase 0 (scaffold) — **✔ complete**. Monorepo boots; FastAPI guard verified; Rails + pgvector DB wired.
 - Phase 1 (auth + data model) — **✔ complete**. User schema extended with country/timezone/lat/lng/last_proactive_skill/last_proactive_at/formality_level/onboarding_completed_at/provider/provider_uid; `Avatar` model (1:1 with User, knowledge_level 1-10 + appearance/behavior jsonb); `Api::V1::AuthController` covers email sign_in/sign_up, Google/Apple/Facebook (server-side provider-token verification — Google/Apple via JWKS, Facebook via Graph API), refresh, me, sign_out; `Api::V1::OnboardingController` (status/complete/reset); CanCanCan `Ability` updated for Avatar; `user` role added to seeds.
-- Phase 2 (chat + AI integration) — **next**. `Conversation`/`Message` models, `ChatChannel` + `ChatGenerationJob` (Sidekiq) → `AiAgentsClient.stream_chat` → ActionCable broadcasts.
+- Phase 2 (chat + AI integration) — **✔ complete**. `Conversation` (UUID, `belongs_to :user`, `last_active_at` touched by each new message) + `Message` (UUID, role enum user|assistant|system, content, jsonb metadata, proactive_skill nullable); `Api::V1::ConversationsController` (index/show/create/destroy) and `MessagesController` (index/create) under `/api/v1/chat/conversations`; `ChatChannel` (`stream_from "chat:<conv_id>"`, auth via `current_user.conversations.find_by`); `ChatGenerationJob` (Sidekiq) calls `AiAgentsClient#stream_chat` and broadcasts deltas/message/done/error on the channel; ActionCable mounted at `/cable` with JWT-in-query-param auth; ActiveJob adapter set to `:sidekiq` globally.
+- Phase 3 (social + ingestion) — **next**. `SocialConnection` + per-platform controllers (Instagram/Facebook/Twitter/Spotify) covering status reads + ingest/extract writes; Sidekiq ingestion jobs that fire `AiAgentsClient#extract_insights` on completion.
 
 See `../PORT_PLAN.md` §10 for the full phase roadmap.
 
@@ -161,3 +162,34 @@ Mobile JWT flow, all under `/api/v1/auth/`:
 Provider verification is in `app/services/auth/`: `google_verifier.rb` + `apple_verifier.rb` share `jwks_verifier.rb` (JWKS fetch + RS256 decode + 1-retry on key rotation), `facebook_verifier.rb` hits `graph.facebook.com/me`. All three return a normalised claim hash to `Auth::SocialSignIn` which upserts the `User` by `(provider, provider_uid)` with an email fallback.
 
 JWT issuance is centralised in `Auth::JwtIssuer` (HS256 + `Rails.application.secret_key_base`; access 7d, refresh 30d). Every `User.create!` triggers `ensure_default_role_and_avatar` which adds the `:user` role and creates the matching `Avatar` — no empty users.
+
+**Seed credentials** (from `db/seeds.rb`):
+- Admin: `admin@golive.local` / `password123` — use for the `/admin` panel.
+
+**Knowledge-level scale mismatch.** `Avatar.knowledge_level` is 1–10 in Rails; FastAPI's `UserProfile.knowledge_level` is 1–5. Convert with `((rails_level + 1) / 2).clamp(1, 5)` when sending to FastAPI; the reverse (FastAPI → Rails) is `(ai_level * 2).clamp(1, 10)`.
+
+## Chat quick reference
+
+REST under `/api/v1/chat/`:
+
+| Route | Purpose |
+|---|---|
+| `GET    /chat/conversations`                              | list (100 most recent, by `last_active_at`) |
+| `POST   /chat/conversations`                              | create (optional `title`) |
+| `GET    /chat/conversations/:id`                          | show + full `messages[]` |
+| `DELETE /chat/conversations/:id`                          | delete |
+| `GET    /chat/conversations/:id/messages`                 | list messages |
+| `POST   /chat/conversations/:id/messages`                 | send `{content}` — returns 202 + user message; enqueues `ChatGenerationJob` |
+
+Real-time over ActionCable at `/cable?token=<jwt>`:
+```
+subscribe  { channel: "ChatChannel", conversation_id: "<uuid>" }
+recv       { type: "delta",   content: "text chunk" }          // repeated
+recv       { type: "message", message: { id, role, content, created_at } }
+recv       { type: "done",    assistant_message_id: "<uuid>" }
+recv       { type: "error",   message: "..." }                  // on failure
+```
+
+Flow: Expo `POST` → `MessagesController#create` persists user message + enqueues `ChatGenerationJob` → job calls `AiAgentsClient#stream_chat` (parses FastAPI SSE frames `data: ...\n\n`) → each chunk is broadcast as `{type: "delta"}` → accumulated content is persisted as an assistant `Message` → final `{type: "message"}` + `{type: "done"}`. If the stream is empty (e.g. missing `OPENAI_API_KEY`), the job persists a placeholder assistant message and broadcasts `{type: "error"}` — no exception leaks.
+
+**ActiveJob adapter is Sidekiq in every environment** (`config/application.rb`). Don't set it per-env.

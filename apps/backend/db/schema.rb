@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_23_000002) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_23_000004) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -23,6 +23,28 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_23_000002) do
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
     t.index ["user_id"], name: "index_avatars_on_user_id", unique: true
+  end
+
+  create_table "conversations", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.datetime "last_active_at", null: false
+    t.string "title"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["user_id", "last_active_at"], name: "index_conversations_on_user_id_and_last_active_at"
+    t.index ["user_id"], name: "index_conversations_on_user_id"
+  end
+
+  create_table "messages", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.text "content", default: "", null: false
+    t.uuid "conversation_id", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.string "proactive_skill"
+    t.string "role", null: false
+    t.datetime "updated_at", null: false
+    t.index ["conversation_id", "created_at"], name: "index_messages_on_conversation_id_and_created_at"
+    t.index ["conversation_id"], name: "index_messages_on_conversation_id"
   end
 
   create_table "roles", force: :cascade do |t|
@@ -82,6 +104,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_23_000002) do
   end
 
   add_foreign_key "avatars", "users"
+  add_foreign_key "conversations", "users"
+  add_foreign_key "messages", "conversations"
   add_foreign_key "user_roles", "roles"
   add_foreign_key "user_roles", "users"
 end

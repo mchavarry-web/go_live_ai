@@ -22,16 +22,29 @@ class AiAgentsClient
     post_json("/internal/chat/generate", payload, timeout: 90)
   end
 
-  # Yields each streamed chunk (String) to the caller.
+  # Streams /internal/chat/stream. FastAPI emits SSE-framed text chunks
+  # ("data: <json>\n\n"). We yield the *plain text* content of each chunk so
+  # the caller (ChatGenerationJob) can broadcast it directly over ActionCable.
   def stream_chat(payload, &block)
+    buffer = +""
     self.class.post(
       "/internal/chat/stream",
       body: payload.to_json,
       headers: { "Content-Type" => "application/json" },
       stream_body: true,
       timeout: 120
-    ) do |chunk|
-      block.call(chunk)
+    ) do |raw_chunk|
+      buffer << raw_chunk
+      while (idx = buffer.index("\n\n"))
+        frame = buffer.slice!(0, idx + 2)
+        content = parse_sse_frame(frame)
+        yield content if content && !content.empty?
+      end
+    end
+    # flush trailing line if server did not terminate with \n\n
+    unless buffer.empty?
+      content = parse_sse_frame(buffer)
+      yield content if content && !content.empty?
     end
   end
 
@@ -65,6 +78,20 @@ class AiAgentsClient
   end
 
   private
+
+  # FastAPI emits SSE frames of the form:
+  #   data: <text-or-json>\n
+  #   \n
+  # The content lines may be:
+  #   - plain text tokens (from LangChain streaming)
+  #   - a JSON object like {"type": "done"} or {"type": "error", "message": "..."}
+  # We return the raw data portion (caller decides how to treat it).
+  def parse_sse_frame(frame)
+    frame
+      .split("\n")
+      .filter_map { |line| line.start_with?("data:") ? line.sub(/^data:\s?/, "") : nil }
+      .join("")
+  end
 
   def post_json(path, payload, timeout: nil)
     opts = {
