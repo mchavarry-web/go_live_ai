@@ -52,8 +52,8 @@ class Settings(BaseSettings):
 
     # ── Redis ───────────────────────────────────────────────────────────
     redis_url: str = Field(
-        default="redis://localhost:6379",
-        description="Redis connection string for caching",
+        default="redis://localhost:6379/5",
+        description="Redis connection string for caching (DB 5 for go-live)",
     )
 
     # ── LLM Provider ────────────────────────────────────────────────────

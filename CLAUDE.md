@@ -64,6 +64,7 @@ curl -H "X-Internal-Token: $TOKEN" \
 - **Python 3.11+ via Homebrew**, **not pyenv**. `bootstrap.sh` explicitly uses `/opt/homebrew/bin/python3.12` to create `apps/ai-agents/.venv` because the user's pyenv is pinned to 3.9.4. **Don't reintroduce `apps/ai-agents/.python-version`** — it forces pyenv back into the picture.
 - **Two `.env` files, never a root one.** `DATABASE_URL` has different values in each service, so the env split is by app: `apps/backend/.env` and `apps/ai-agents/.env`. Don't create a root `.env` — nothing reads it.
 - **Shared secret is one value, two names.** `AI_AGENTS_INTERNAL_TOKEN` (Rails) == `INTERNAL_TOKEN` (FastAPI). Must match; FastAPI fails closed with 500 if unset.
+- **Redis DB index is `5`** (`REDIS_URL=redis://localhost:6379/5`). Other local projects occupy DB 0; keep go-live on 5 in every `.env`, `cable.yml`, and Python `settings.py` default.
 - **Shrine falls back to local FileSystem** in dev when `S3_AWS_STORAGE_BUCKET_NAME` is unset (see `config/initializers/shrine.rb`). Production sets the S3 env vars; nothing else changes.
 - **FastAPI hatch build** needs `[tool.hatch.build.targets.wheel] packages = ["app"]` in `pyproject.toml` — the package name (`golive-ai-agents`) doesn't match the source dir (`app/`), so hatchling can't auto-detect.
 - **RVM + `set -u`** don't mix. Shell scripts that source RVM must use `set -eo pipefail`, not `set -euo`.

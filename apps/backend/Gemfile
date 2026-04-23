@@ -55,6 +55,9 @@ gem "aws-sdk-s3", "~> 1.169.0"
 
 # Background jobs
 gem "sidekiq", "~> 7.3.4"
+# Sidekiq 7.3.x calls connection_pool#pop with 1 arg; connection_pool 3.x
+# removed that signature. Pin to 2.x until Sidekiq 8.
+gem "connection_pool", "~> 2.5"
 
 # Cron jobs
 gem "whenever", require: false

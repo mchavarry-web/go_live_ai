@@ -27,7 +27,7 @@ def settings() -> Settings:
         environment="development",
         debug=True,
         database_url="postgresql+asyncpg://test:test@localhost:5432/test_golive",
-        redis_url="redis://localhost:6379/1",
+        redis_url="redis://localhost:6379/6",
         llm_provider="openai",
         openai_api_key="sk-test-key-not-real",  # type: ignore[arg-type]
         openai_model="gpt-4-turbo-preview",
