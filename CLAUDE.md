@@ -79,9 +79,14 @@ Requires: Homebrew Postgres running (the running server can be 14+; pgvector ava
 
 ### Daily dev (one command starts the stack)
 ```bash
+# From the monorepo root — uses /Procfile.dev
 foreman start -f Procfile.dev
-# ↳ Rails :3000, jsbundle watch, cssbundle watch, Sidekiq, FastAPI :8001, Expo :8081
+# ↳ rails :3000, jsbundle, cssbundle, sidekiq, ai-agents :8001, expo :8081
 ```
+
+There are **two Procfile.dev** files. Both include Sidekiq:
+- `/Procfile.dev` (monorepo root) — full stack (6 processes). Use `foreman start -f Procfile.dev` here.
+- `/apps/backend/Procfile.dev` (Rails-only) — web + js + css + worker (sidekiq). Used by `bin/dev` when you `cd apps/backend`.
 
 ### Rails (apps/backend)
 ```bash
