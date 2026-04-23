@@ -17,7 +17,9 @@
 class Api::V1::ProactiveGreetingsController < Api::V1::BaseController
   def create
     ctx = build_context
-    skill = Proactive::SkillRegistry.default.select(ctx)
+    registry = Proactive::SkillRegistry.default
+    enabled  = Proactive::SkillRegistry.enabled_skill_ids_for(current_user, registry.skill_ids)
+    skill    = registry.select(ctx, enabled_skill_ids: enabled)
 
     # Persist the user's reported location if we got GPS coords; they feed
     # future dialect + skill-context decisions.

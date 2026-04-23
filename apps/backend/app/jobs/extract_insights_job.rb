@@ -22,11 +22,12 @@ class ExtractInsightsJob < ApplicationJob
       payload:  data
     )
 
-    # If FastAPI updated the user's knowledge level, mirror it on Rails' side.
-    if response.is_a?(Hash) && response["knowledge_level"]
-      ai_level = response["knowledge_level"].to_i
-      mirrored = [ai_level * 2, 10].min
-      user.avatar&.update!(knowledge_level: mirrored) if mirrored >= (user.avatar&.knowledge_level || 1)
+    # knowledge_level is now a derived method — nothing to mirror in Rails.
+    # Insight counts are synced nightly by SyncAvatarCountersJob, but if the
+    # response surfaces a count directly, opportunistically bump the avatar.
+    if response.is_a?(Hash) && response["insights_count"]
+      avatar = user.avatar
+      avatar&.update_columns(insights_count: response["insights_count"].to_i)
     end
 
     Rails.logger.info("ExtractInsightsJob: user=#{user.id} provider=#{provider} " \

@@ -1,0 +1,50 @@
+<div class="px-4 sm:px-6 lg:px-8">
+  <div class="sm:flex sm:items-center">
+    <div class="sm:flex-auto">
+      <h1 class="text-3xl font-bold text-gray-900">Feature flags</h1>
+      <p class="mt-2 text-sm text-gray-700">
+        Toggles globales para skills proactivos. Si un skill está deshabilitado aquí,
+        ningún usuario lo recibirá aunque lo tenga activo en su app.
+      </p>
+    </div>
+  </div>
+
+  <div class="mt-8 bg-white shadow rounded-lg overflow-hidden">
+    <table class="min-w-full divide-y divide-gray-200">
+      <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        <tr><th class="px-6 py-3">Skill</th><th class="px-6 py-3">Clave</th><th class="px-6 py-3">Requiere</th><th class="px-6 py-3 text-right">Estado</th></tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200 bg-white">
+        <% @features.each do |f| %>
+          <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 text-sm">
+              <div class="font-medium text-gray-900"><%= f[:skill].name %></div>
+              <div class="text-xs text-gray-500"><%= f[:id] %></div>
+            </td>
+            <td class="px-6 py-4 text-sm font-mono text-gray-600"><%= f[:key] %></td>
+            <td class="px-6 py-4 text-sm text-gray-600">
+              <% reqs = [] %>
+              <% reqs << "ubicación" if f[:skill].requires_location %>
+              <% reqs << "web search" if f[:skill].requires_web_search %>
+              <%= reqs.join(" · ").presence || "—" %>
+            </td>
+            <td class="px-6 py-4 text-right">
+              <% if f[:enabled] %>
+                <%= button_to "Deshabilitar",
+                              admin_feature_settings_path(key: f[:key], enabled: false),
+                              method: :patch,
+                              class: "inline-flex items-center rounded-md bg-red-600 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-red-700",
+                              data: { turbo_confirm: "¿Deshabilitar #{f[:key]} para todos los usuarios?" } %>
+              <% else %>
+                <%= button_to "Habilitar",
+                              admin_feature_settings_path(key: f[:key], enabled: true),
+                              method: :patch,
+                              class: "inline-flex items-center rounded-md bg-green-600 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-green-700" %>
+              <% end %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -15,9 +15,13 @@ class Api::V1::BaseController < ApplicationController
     end
 
     begin
-      decoded_token = JWT.decode(token, Rails.application.secret_key_base, true, { algorithm: 'HS256' })
-      user_id = decoded_token.first['user_id']
-      @current_user = User.find(user_id)
+      payload = JWT.decode(token, Rails.application.secret_key_base, true, { algorithm: 'HS256' }).first
+      if payload["jti"] && JwtDenylist.denylisted?(payload["jti"])
+        render json: { error: 'Token revoked' }, status: :unauthorized
+        return
+      end
+      @current_user   = User.find(payload["user_id"])
+      @current_payload = payload
     rescue JWT::DecodeError, ActiveRecord::RecordNotFound
       render json: { error: 'Invalid token' }, status: :unauthorized
     end

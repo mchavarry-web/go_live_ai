@@ -23,6 +23,10 @@ Rails.application.routes.draw do
       post "onboarding/complete", to: "onboarding#complete"
       post "onboarding/reset",    to: "onboarding#reset"
 
+      # Per-user feature settings (proactive skill opt-out, future flags)
+      get  "settings/features", to: "feature_settings#index"
+      post "settings/features", to: "feature_settings#update"
+
       # Chat
       scope "chat" do
         resources :conversations, only: %i[index show create destroy] do
@@ -68,6 +72,9 @@ Rails.application.routes.draw do
       member do
         post :promote
         post :demote
+        post :reset_onboarding
+        post :extract
+        post :disconnect_social
       end
     end
 
@@ -76,6 +83,10 @@ Rails.application.routes.draw do
     # `admin_instagram_extract_path(id)` → POST /admin/instagram/:id/extract
     get  "instagram",              to: "instagram#index",   as: :instagram
     post "instagram/:id/extract",  to: "instagram#extract", as: :instagram_extract
+
+    # Global feature flags (proactive-skill toggles, future feature gates)
+    get   "feature_settings", to: "feature_settings#index", as: :feature_settings
+    patch "feature_settings", to: "feature_settings#update"
   end
 
   # ── ActionCable (JWT-authenticated via ApplicationCable::Connection) ──

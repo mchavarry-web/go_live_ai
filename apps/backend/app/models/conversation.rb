@@ -5,6 +5,7 @@ class Conversation < ApplicationRecord
   has_many   :messages, -> { order(created_at: :asc) }, dependent: :destroy
 
   before_validation :set_last_active_at, on: :create
+  after_create_commit :bump_avatar_counter
   validates :last_active_at, presence: true
 
   scope :recent, -> { order(last_active_at: :desc) }
@@ -25,5 +26,10 @@ class Conversation < ApplicationRecord
 
   def set_last_active_at
     self.last_active_at ||= Time.current
+  end
+
+  def bump_avatar_counter
+    return unless user&.avatar
+    user.avatar.class.increment_counter(:conversations_count, user.avatar.id)
   end
 end

@@ -1,31 +1,71 @@
-<%= render "shared/admin/page_header" do %>
-  <div class="flex flex-col items-start justify-between space-y-2 lg:space-y-0 lg:space-x-4 lg:items-center lg:flex-row">
+<div class="px-4 sm:px-6 lg:px-8">
+  <div class="sm:flex sm:items-center sm:justify-between">
     <div>
-      <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Usuarios</h1>
-      <p class="text-slate-600 dark:text-slate-400">Lista de todos los usuarios internos del sistema</p>
+      <h1 class="text-3xl font-bold text-gray-900">Usuarios</h1>
+      <p class="mt-2 text-sm text-gray-700"><%= @users.size %> resultados</p>
     </div>
+    <%= link_to "Nuevo usuario", new_admin_user_path,
+                class: "inline-flex items-center rounded-md bg-orange-600 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-orange-700" %>
   </div>
-<% end %>
 
-<%= render "shared/admin/page_body" do %>
-  <div data-controller="datatable" data-datatable-options-value="<%= @datatable_options %>server_side:true;">
-    <div class="py-2 bg-white border rounded-lg shadow border-slate-300/80 shadow-slate-100 dark:shadow-slate-950 dark:bg-slate-800 dark:border-slate-600/80">
-      <table id="datatable-element" class="min-w-full bg-white dark:bg-slate-800">
-        <thead>
-          <tr>
-            <th class="px-4 py-2 text-left">ID</th>
-            <th class="px-4 py-2 text-left">Nombre</th>
-            <th class="px-4 py-2 text-left">Correo Electrónico</th>
-            <th class="px-4 py-2 text-left">Teléfono</th>
-            <th class="px-4 py-2 text-left">Rol</th>
-            <th class="px-4 py-2 text-left">Organización</th>
-            <th class="px-4 py-2 text-left">2FA</th>
-            <th class="px-4 py-2 text-left">Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-        </tbody>
-      </table>
+  <%= form_with url: admin_users_path, method: :get, local: true, class: "mt-6 bg-white shadow rounded-lg p-4 flex flex-wrap items-end gap-3" do |f| %>
+    <div>
+      <label class="block text-xs font-medium text-gray-500">Email</label>
+      <%= text_field_tag :q, @q[:q], placeholder: "buscar...", class: "mt-1 rounded-md border-gray-300 text-sm" %>
     </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500">Proveedor</label>
+      <%= select_tag :provider, options_for_select([["todos", ""], *User::PROVIDERS.map { |p| [p, p] }], @q[:provider]),
+                     class: "mt-1 rounded-md border-gray-300 text-sm" %>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500">Rol</label>
+      <%= select_tag :role, options_for_select([["todos", ""], *User::ROLES.map { |r| [r, r] }], @q[:role]),
+                     class: "mt-1 rounded-md border-gray-300 text-sm" %>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500">Onboarded</label>
+      <%= select_tag :onboarded, options_for_select([["todos", ""], ["sí", "true"], ["no", "false"]], @q[:onboarded]),
+                     class: "mt-1 rounded-md border-gray-300 text-sm" %>
+    </div>
+    <div>
+      <%= submit_tag "Filtrar", class: "inline-flex items-center rounded-md bg-gray-800 px-4 py-1.5 text-sm font-semibold text-white hover:bg-gray-900" %>
+      <%= link_to "Limpiar", admin_users_path, class: "ml-2 text-sm text-gray-500 hover:text-gray-700" %>
+    </div>
+  <% end %>
+
+  <div class="mt-6 bg-white shadow rounded-lg overflow-hidden">
+    <table class="min-w-full divide-y divide-gray-200">
+      <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase">
+        <tr>
+          <th class="px-6 py-3">Email</th>
+          <th class="px-6 py-3">Nombre</th>
+          <th class="px-6 py-3">Rol</th>
+          <th class="px-6 py-3">Proveedor</th>
+          <th class="px-6 py-3">País</th>
+          <th class="px-6 py-3">Onboarded</th>
+          <th class="px-6 py-3">Creado</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200">
+        <% @users.each do |u| %>
+          <tr class="hover:bg-gray-50 text-sm">
+            <td class="px-6 py-3">
+              <%= link_to u.email, admin_user_path(u), class: "font-medium text-gray-900 hover:text-orange-600" %>
+            </td>
+            <td class="px-6 py-3 text-gray-700"><%= u.name %></td>
+            <td class="px-6 py-3">
+              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium <%= u.admin? ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700' %>">
+                <%= u.role %>
+              </span>
+            </td>
+            <td class="px-6 py-3 text-gray-600"><%= u.provider || "email" %></td>
+            <td class="px-6 py-3 text-gray-600"><%= u.country || "—" %></td>
+            <td class="px-6 py-3 text-gray-600"><%= u.onboarded? ? "✓" : "—" %></td>
+            <td class="px-6 py-3 text-gray-500 text-xs"><%= time_ago_in_words(u.created_at) %> ago</td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
   </div>
-<% end %>
+</div>

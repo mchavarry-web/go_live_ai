@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-# Centralised JWT issuance + decoding for the API. Every token is signed with
-# HS256 + Rails.application.secret_key_base. Access tokens live 7 days;
-# refresh tokens live 30 days and carry type: "refresh".
+# Centralised JWT issuance + decoding for the API. Every access token now
+# carries a `jti` (UUID) so we can revoke it on sign-out; revocation lives
+# in JwtDenylist.
 module Auth
   module JwtIssuer
     ACCESS_TTL  = 7.days
@@ -12,11 +12,13 @@ module Auth
     module_function
 
     def access_token(user)
-      encode(user_id: user.id, role: user.role, exp: ACCESS_TTL.from_now.to_i, type: "access")
+      exp = ACCESS_TTL.from_now.to_i
+      jti = SecureRandom.uuid
+      encode(user_id: user.id, role: user.role, jti: jti, exp: exp, type: "access")
     end
 
     def refresh_token(user)
-      encode(user_id: user.id, exp: REFRESH_TTL.from_now.to_i, type: "refresh")
+      encode(user_id: user.id, jti: SecureRandom.uuid, exp: REFRESH_TTL.from_now.to_i, type: "refresh")
     end
 
     def decode!(token)
@@ -25,6 +27,14 @@ module Auth
 
     def encode(payload)
       JWT.encode(payload, Rails.application.secret_key_base, ALG)
+    end
+
+    # Denylist the jti of an access token until its natural exp. Idempotent.
+    def revoke!(payload)
+      return unless payload["jti"] && payload["exp"]
+      JwtDenylist.find_or_create_by!(jti: payload["jti"]) do |row|
+        row.exp = Time.at(payload["exp"].to_i)
+      end
     end
   end
 end

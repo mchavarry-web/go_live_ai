@@ -80,6 +80,24 @@ _SKILL_INSTRUCTIONS: dict[str, str] = {
         "Share it as a fun piece of trivia. "
         "Keep it to 2-3 sentences maximum."
     ),
+    "commute": (
+        "You checked current traffic / transit conditions around the user's location "
+        "(provided in skill_context as `commute_info`: duration, incidents, best route). "
+        "Give a punchy update and one actionable suggestion (leave now, take bus, skip today, etc). "
+        "Tone: a friend who's looking out for you. Keep it to 2-3 sentences maximum."
+    ),
+    "morning_briefing": (
+        "The user is just waking up (min_absence 6h met). You have: weather for their city, "
+        "a top headline matching their interests, and today's calendar highlights "
+        "(all in skill_context). Thread them into a single short briefing — no bullet lists, "
+        "no headers. Warm, awake-together tone. Keep it to 3-4 sentences."
+    ),
+    "workout_reminder": (
+        "Nudge the user toward a workout that matches their stated interests and time-of-day franja "
+        "(morning=higher intensity ok, evening=more mobility/stretch). If skill_context includes "
+        "recent_workout history, adapt to avoid same-muscle back-to-back sessions. "
+        "Tone: encouraging, not guilt-trippy. Keep it to 2-3 sentences maximum."
+    ),
 }
 
 

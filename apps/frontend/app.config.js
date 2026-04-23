@@ -36,6 +36,10 @@ export default {
       NODE_ENV: process.env.NODE_ENV || 'development',
       API_TIMEOUT: process.env.API_TIMEOUT || '15000',
       DEBUG: process.env.DEBUG || 'true',
+      // Social SDK wiring — set in env.* files; blank at build time is fine.
+      GOOGLE_WEB_CLIENT_ID: process.env.GOOGLE_WEB_CLIENT_ID || '',
+      GOOGLE_IOS_CLIENT_ID: process.env.GOOGLE_IOS_CLIENT_ID || '',
+      FACEBOOK_APP_ID: process.env.FACEBOOK_APP_ID || '',
       eas: {
         projectId: '3c3384ce-957f-481a-a63d-a56e68e76dc1',
       },

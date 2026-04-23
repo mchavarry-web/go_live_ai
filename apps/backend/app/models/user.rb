@@ -12,6 +12,7 @@ class User < ApplicationRecord
   has_many :messages,         through:   :conversations
   has_many :social_connections, dependent: :destroy
   has_many :device_tokens,    dependent: :destroy
+  has_many :user_feature_settings, dependent: :destroy
 
   after_create :ensure_avatar
 

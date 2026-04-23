@@ -10,16 +10,21 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_23_000007) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_23_000010) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
   create_table "avatars", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.jsonb "appearance", default: {}, null: false
     t.jsonb "behavior", default: {}, null: false
+    t.integer "conversations_count", default: 0, null: false
     t.datetime "created_at", null: false
-    t.integer "knowledge_level", default: 1, null: false
+    t.integer "days_active", default: 0, null: false
+    t.integer "insights_count", default: 0, null: false
+    t.datetime "last_interaction_at"
+    t.integer "messages_count", default: 0, null: false
     t.string "name"
+    t.integer "social_connections_count", default: 0, null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
     t.index ["user_id"], name: "index_avatars_on_user_id", unique: true
@@ -47,6 +52,24 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_23_000007) do
     t.index ["user_id"], name: "index_device_tokens_on_user_id"
   end
 
+  create_table "feature_settings", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.boolean "enabled", default: true, null: false
+    t.string "key", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.index ["key"], name: "index_feature_settings_on_key", unique: true
+  end
+
+  create_table "jwt_denylist", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.datetime "exp", null: false
+    t.string "jti", null: false
+    t.datetime "updated_at", null: false
+    t.index ["exp"], name: "index_jwt_denylist_on_exp"
+    t.index ["jti"], name: "index_jwt_denylist_on_jti", unique: true
+  end
+
   create_table "messages", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.text "content", default: "", null: false
     t.uuid "conversation_id", null: false
@@ -72,6 +95,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_23_000007) do
     t.bigint "user_id", null: false
     t.index ["user_id", "provider"], name: "index_social_connections_on_user_id_and_provider", unique: true
     t.index ["user_id"], name: "index_social_connections_on_user_id"
+  end
+
+  create_table "user_feature_settings", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.boolean "enabled", default: true, null: false
+    t.string "key", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["user_id", "key"], name: "index_user_feature_settings_on_user_id_and_key", unique: true
+    t.index ["user_id"], name: "index_user_feature_settings_on_user_id"
   end
 
   create_table "users", force: :cascade do |t|
@@ -119,4 +152,5 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_23_000007) do
   add_foreign_key "device_tokens", "users"
   add_foreign_key "messages", "conversations"
   add_foreign_key "social_connections", "users"
+  add_foreign_key "user_feature_settings", "users"
 end

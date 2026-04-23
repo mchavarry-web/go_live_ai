@@ -10,6 +10,7 @@ class Message < ApplicationRecord
   validates :content, presence: true, length: { maximum: 10_000 }
 
   after_create_commit :bump_conversation_activity
+  after_create_commit :bump_avatar_counters
 
   scope :assistant, -> { where(role: "assistant") }
   scope :user_msgs, -> { where(role: "user") }
@@ -18,5 +19,12 @@ class Message < ApplicationRecord
 
   def bump_conversation_activity
     conversation.touch_activity!
+  end
+
+  def bump_avatar_counters
+    avatar = user&.avatar
+    return unless avatar
+    avatar.class.increment_counter(:messages_count, avatar.id)
+    avatar.reload.register_interaction!
   end
 end

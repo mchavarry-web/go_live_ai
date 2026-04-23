@@ -1,20 +1,21 @@
-# Use this file to easily define all of your cron jobs.
-#
-# It's helpful, but not entirely necessary to understand cron before proceeding.
-# http://en.wikipedia.org/wiki/Cron
+# Whenever DSL → crontab.
+# Generate with `bundle exec whenever --update-crontab` on the target host,
+# or preview with `bundle exec whenever`.
 
-# Example:
-#
-# set :output, "/path/to/my/cron_log.log"
-#
-# every 2.hours do
-#   command "/usr/bin/some_great_command"
-#   runner "MyModel.some_method"
-#   rake "some:great:rake:task"
-# end
-#
-# every 4.days do
-#   runner "AnotherModel.prune_old_records"
-# end
+set :output, "log/cron.log"
+env :PATH, ENV["PATH"]
 
-# Learn more: http://github.com/javan/whenever
+# Proactive pings — fan out every 30 minutes across each time-of-day window.
+# Each job self-filters users by their configured timezone + last_proactive_at
+# rate limit, so it's safe to schedule at UTC-ish cadence.
+every 30.minutes do
+  runner "ProactivePushJob.perform_later(time_window: 'morning')"
+  runner "ProactivePushJob.perform_later(time_window: 'afternoon')"
+  runner "ProactivePushJob.perform_later(time_window: 'evening')"
+  runner "ProactivePushJob.perform_later(time_window: 'night')"
+end
+
+# Nightly avatar-counter sync (insights_count) from FastAPI.
+every 1.day, at: "4:00 am" do
+  runner "SyncAvatarCountersJob.perform_later"
+end

@@ -71,7 +71,10 @@ class Api::V1::AuthController < Api::V1::BaseController
   end
 
   def sign_out
-    # JWT is stateless. Symmetry-only endpoint.
+    # Revoke the jti in the denylist so the current access token can't be
+    # reused even if it leaks. Refresh tokens are still valid until their
+    # own exp; the client should discard both.
+    Auth::JwtIssuer.revoke!(@current_payload) if @current_payload
     render_success(message: "signed out")
   end
 
@@ -100,6 +103,7 @@ class Api::V1::AuthController < Api::V1::BaseController
   end
 
   def user_json(user)
+    avatar = user.avatar
     {
       id: user.id,
       email: user.email,
@@ -111,7 +115,9 @@ class Api::V1::AuthController < Api::V1::BaseController
       onboarded:  user.onboarded?,
       provider:   user.provider,
       role:       user.role,
-      knowledge_level: user.avatar&.knowledge_level || 1,
+      knowledge_level: avatar&.knowledge_level || 1,
+      stage:           avatar&.stage           || "awakening",
+      raw_knowledge:   avatar&.raw_knowledge   || {},
       created_at: user.created_at,
       updated_at: user.updated_at
     }
