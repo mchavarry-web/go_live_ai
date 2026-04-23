@@ -13,6 +13,7 @@ class User < ApplicationRecord
   has_many :conversations, dependent: :destroy
   has_many :messages, through: :conversations
   has_many :social_connections, dependent: :destroy
+  has_many :device_tokens, dependent: :destroy
 
   after_create :ensure_default_role_and_avatar
 

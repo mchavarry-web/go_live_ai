@@ -141,7 +141,8 @@ yarn lint && yarn test
 - Phase 1 (auth + data model) — **✔ complete**. User schema extended with country/timezone/lat/lng/last_proactive_skill/last_proactive_at/formality_level/onboarding_completed_at/provider/provider_uid; `Avatar` model (1:1 with User, knowledge_level 1-10 + appearance/behavior jsonb); `Api::V1::AuthController` covers email sign_in/sign_up, Google/Apple/Facebook (server-side provider-token verification — Google/Apple via JWKS, Facebook via Graph API), refresh, me, sign_out; `Api::V1::OnboardingController` (status/complete/reset); CanCanCan `Ability` updated for Avatar; `user` role added to seeds.
 - Phase 2 (chat + AI integration) — **✔ complete**. `Conversation` (UUID, `belongs_to :user`, `last_active_at` touched by each new message) + `Message` (UUID, role enum user|assistant|system, content, jsonb metadata, proactive_skill nullable); `Api::V1::ConversationsController` (index/show/create/destroy) and `MessagesController` (index/create) under `/api/v1/chat/conversations`; `ChatChannel` (`stream_from "chat:<conv_id>"`, auth via `current_user.conversations.find_by`); `ChatGenerationJob` (Sidekiq) calls `AiAgentsClient#stream_chat` and broadcasts deltas/message/done/error on the channel; ActionCable mounted at `/cable` with JWT-in-query-param auth; ActiveJob adapter set to `:sidekiq` globally.
 - Phase 3 (social + ingestion) — **✔ complete**. `SocialConnection` (UUID, unique per user+provider) with Rails-8 ActiveRecord encryption on `access_token` + `refresh_token`; per-platform flat controllers (`InstagramController`, `FacebookController`, `TwitterController`, `SpotifyController`) sharing an `Api::V1::SocialBaseController` that provides `status`/`disconnect`/`extract_insights`; Spotify full server-side OAuth flow (`auth_url` w/ signed state, `callback` exchanges code); Instagram upload-based ingestion; Sidekiq jobs `InstagramIngestJob`, `FetchSocialDataJob` (per-provider Graph/Web-API pulls), and `ExtractInsightsJob` chained via `AiAgentsClient#extract_insights` which routes to `/internal/insights/extract-instagram` or `/extract-social` per platform.
-- Phase 4 (proactive + notifications) — **next**. `ProactiveSkillRegistry` port (from the Django `apps/chat/proactive_skills.py`), proactive-greeting endpoint, `DeviceToken` model, FCM push job, scheduled triggers via the Whenever gem.
+- Phase 4 (proactive + notifications) — **✔ complete**. `Proactive::SkillRegistry` Ruby port (`app/services/proactive/skill_registry.rb`) with the four default skills (`generic_greeting`, `fun_fact`, `motivation`, `news`), identical time-of-day weights and anti-repetition penalty as the Django original; `Api::V1::ProactiveGreetingsController#create` at `POST /api/v1/chat/proactive-greeting` selects a skill, calls FastAPI `/internal/chat/proactive-generate`, persists the reply as a proactive `Message` (role=assistant, `proactive_skill` stamped), updates `User.last_proactive_skill/at` + optional GPS; `DeviceToken` model (UUID, one active per token, platform enum ios|android|web); `Api::V1::DeviceTokensController` for register/unregister/test-push; `PushNotificationJob` (Sidekiq) hits FCM legacy `/fcm/send` or no-ops when `FCM_SERVER_KEY` is unset (dev-safe).
+- Phase 5 (web admin) — **next**. Hotwire/Turbo pages for Instagram ingestion panel (replaces `gln-web-front` Next.js), admin dashboard, role-gated `/admin/*`.
 
 See `../PORT_PLAN.md` §10 for the full phase roadmap.
 
@@ -220,3 +221,29 @@ Job chain:
 `AiAgentsClient#extract_insights` mirrors the FastAPI split: Instagram has its own triple-chain (`extract-instagram`), every other platform goes through the shared `extract-social`.
 
 **ActiveRecord encryption keys** are env-driven in dev via `ACTIVE_RECORD_ENCRYPTION_{PRIMARY_KEY,DETERMINISTIC_KEY,KEY_DERIVATION_SALT}` (see `config/initializers/active_record_encryption.rb`). They are **stable** — rotating any of them invalidates every existing `social_connections.access_token`/`refresh_token` row.
+
+## Proactive + notifications quick reference
+
+Proactive greeting (avatar speaks first when user returns to the app):
+
+```
+POST /api/v1/chat/proactive-greeting
+    { local_time: "08:15", local_date: "2026-04-23",
+      absence_minutes: 45, latitude?, longitude?, timezone? }
+
+→  { conversation_id, skill: { id, name }, message: {...} }
+```
+
+Flow: `Proactive::SkillRegistry.default.select(context)` picks a skill using time-of-day weights (morning/afternoon/evening/night) + anti-repetition penalty on `user.last_proactive_skill` → Rails calls FastAPI `/internal/chat/proactive-generate` → persists reply as `Message(role: "assistant", proactive_skill: skill.id)` → updates `user.last_proactive_skill / last_proactive_at` (+ `last_latitude/longitude` if GPS was provided).
+
+**Adding a new skill:** register on `Proactive::SkillRegistry.default` with id/name/time_weights/requires_location/requires_web_search/min_absence_minutes. The matching prompt section must also be added under `apps/ai-agents/app/prompts/proactive_greeting.py` for FastAPI to know how to render it.
+
+Device tokens & push:
+
+| Route | Body | Purpose |
+|---|---|---|
+| `POST   /api/v1/notifications/device_tokens` | `{ token, platform, metadata? }` | register (find-or-create by token; reassigns user on reinstall) |
+| `DELETE /api/v1/notifications/device_tokens/:token` | — | deactivate |
+| `POST   /api/v1/notifications/test` | — | dev-only; enqueues a test push to every active token |
+
+`PushNotificationJob(device_token_id:, title:, body:, data:)` posts to FCM legacy `/fcm/send` with `FCM_SERVER_KEY` bearer. When the key is unset the job **logs and returns** — pipeline stays exerciseable without a real FCM project. On FCM `NotRegistered`/`InvalidRegistration` responses the token is auto-deactivated.

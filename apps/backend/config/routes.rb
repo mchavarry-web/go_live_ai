@@ -27,6 +27,14 @@ Rails.application.routes.draw do
         resources :conversations, only: %i[index show create destroy] do
           resources :messages, only: %i[index create]
         end
+        post "proactive-greeting", to: "proactive_greetings#create"
+      end
+
+      # Device tokens + push notifications
+      scope "notifications" do
+        post   "device_tokens",         to: "device_tokens#create"
+        delete "device_tokens/:token",  to: "device_tokens#destroy", constraints: { token: %r{[^/]+} }
+        post   "test",                  to: "device_tokens#test"
       end
 
       # Social connections + ingestion (flat per-platform, no Ingestion:: namespace)
