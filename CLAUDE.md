@@ -34,14 +34,15 @@ Expo (ios/android/web) ──HTTPS + ActionCable──► Rails ──HTTP──
 - **Auth:** Devise (cookie web) + hand-rolled JWT (API) — see `apps/backend/app/controllers/api/v1/base_controller.rb`. **No devise-jwt, no omniauth.** Social login (Google/Apple/Facebook) done via client-side provider SDK + server-side token verification.
 - **Queue/Cable/Cache:** Sidekiq + Redis. ActionCable adapter is `async` in dev, `redis` in prod. **No Solid Queue / Solid Cable / Solid Cache.**
 - **Ingestion:** flat per-platform controllers (`InstagramController`, `SpotifyController`, etc.) — no `Ingestion::` namespace.
-- **Two PostgreSQL DBs:** one for Rails, one for FastAPI (pgvector). Rails never uses pgvector.
+- **Two PostgreSQL DBs on the same local server** (different DB names): `go_live_backend_development` for Rails, `go_live_ai_agents_development` for FastAPI. Rails never uses pgvector; the AI DB has the `vector` extension enabled. Production follows the same shape; Postgres runs locally on the box, not containerized.
 
 ## Common commands
 
 ### Bootstrap (first run only)
 ```bash
-./bootstrap.sh          # installs everything, starts Docker, creates DBs
+./bootstrap.sh          # assumes local Postgres + Redis; creates DBs, installs deps
 ```
+Requires: Homebrew Postgres 16 running, pgvector available, Redis running. No Docker in dev or prod.
 
 ### Daily dev (one command starts the stack)
 ```bash
