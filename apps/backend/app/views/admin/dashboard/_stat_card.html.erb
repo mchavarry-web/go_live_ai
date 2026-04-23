@@ -1,0 +1,22 @@
+<%
+  title = local_assigns[:title]
+  value = local_assigns[:value]
+  hint  = local_assigns[:hint]
+  href  = local_assigns[:href]
+%>
+<div class="bg-white overflow-hidden shadow rounded-lg">
+  <div class="p-5">
+    <dl>
+      <dt class="text-sm font-medium text-gray-500 truncate"><%= title %></dt>
+      <dd class="mt-1 text-3xl font-semibold text-gray-900"><%= value %></dd>
+      <% if hint.present? %>
+        <dd class="mt-1 text-xs text-gray-500"><%= hint %></dd>
+      <% end %>
+    </dl>
+  </div>
+  <% if href.present? %>
+    <div class="bg-gray-50 px-5 py-3">
+      <%= link_to "Ver más →", href, class: "text-sm font-medium text-orange-600 hover:text-orange-500" %>
+    </div>
+  <% end %>
+</div>

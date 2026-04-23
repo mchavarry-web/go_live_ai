@@ -61,14 +61,20 @@ Rails.application.routes.draw do
   # Admin routes
   namespace :admin do
     get "dashboard/index"
-    root 'dashboard#index'
+    root "dashboard#index"
 
     resources :users do
       member do
-        post :assign_role
+        post   :assign_role
         delete :remove_role
       end
     end
+
+    # Instagram ingestion panel (replaces the old gln-web-front Next.js).
+    # `admin_instagram_path`         → GET  /admin/instagram
+    # `admin_instagram_extract_path(id)` → POST /admin/instagram/:id/extract
+    get  "instagram",              to: "instagram#index",   as: :instagram
+    post "instagram/:id/extract",  to: "instagram#extract", as: :instagram_extract
   end
 
   # ── ActionCable (JWT-authenticated via ApplicationCable::Connection) ──

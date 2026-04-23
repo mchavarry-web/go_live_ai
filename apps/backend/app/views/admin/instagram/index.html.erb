@@ -1,0 +1,55 @@
+<div class="px-4 sm:px-6 lg:px-8">
+  <div class="sm:flex sm:items-center">
+    <div class="sm:flex-auto">
+      <h1 class="text-3xl font-bold text-gray-900">Instagram — ingestión</h1>
+      <p class="mt-2 text-sm text-gray-700">
+        Usuarios que han cargado datos de Instagram. Ejecuta la extracción de insights cuando quieras re-procesarlos.
+      </p>
+    </div>
+  </div>
+
+  <div class="mt-8 bg-white shadow rounded-lg overflow-hidden">
+    <table class="min-w-full divide-y divide-gray-200">
+      <thead class="bg-gray-50">
+        <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <th class="px-6 py-3">Usuario</th>
+          <th class="px-6 py-3">Ítems</th>
+          <th class="px-6 py-3">Última subida</th>
+          <th class="px-6 py-3">Conectado</th>
+          <th class="px-6 py-3 text-right">Acciones</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200 bg-white">
+        <% @instagram_connections.each do |c| %>
+          <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 text-sm">
+              <%= link_to c.user.email, admin_user_path(c.user), class: "font-medium text-gray-900 hover:text-orange-600" %>
+              <div class="text-xs text-gray-500"><%= c.user.name %></div>
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-900"><%= c.metadata["item_count"] || 0 %></td>
+            <td class="px-6 py-4 text-sm text-gray-500">
+              <%= c.metadata["last_ingested_at"] || "—" %>
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-500">
+              <%= time_ago_in_words(c.created_at) %> ago
+            </td>
+            <td class="px-6 py-4 text-right text-sm">
+              <%= button_to "Re-extraer",
+                            admin_instagram_extract_path(c),
+                            method: :post,
+                            class: "inline-flex items-center rounded-md bg-orange-600 px-3 py-1.5 text-sm font-semibold text-white shadow hover:bg-orange-700",
+                            data: { turbo_confirm: "¿Encolar ExtractInsightsJob para #{c.user.email}?" } %>
+            </td>
+          </tr>
+        <% end %>
+        <% if @instagram_connections.empty? %>
+          <tr>
+            <td colspan="5" class="px-6 py-10 text-center text-sm text-gray-500">
+              Todavía no hay subidas de Instagram. Usa el endpoint <code>POST /api/v1/instagram/ingest</code> desde la app.
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</div>

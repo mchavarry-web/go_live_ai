@@ -142,7 +142,8 @@ yarn lint && yarn test
 - Phase 2 (chat + AI integration) — **✔ complete**. `Conversation` (UUID, `belongs_to :user`, `last_active_at` touched by each new message) + `Message` (UUID, role enum user|assistant|system, content, jsonb metadata, proactive_skill nullable); `Api::V1::ConversationsController` (index/show/create/destroy) and `MessagesController` (index/create) under `/api/v1/chat/conversations`; `ChatChannel` (`stream_from "chat:<conv_id>"`, auth via `current_user.conversations.find_by`); `ChatGenerationJob` (Sidekiq) calls `AiAgentsClient#stream_chat` and broadcasts deltas/message/done/error on the channel; ActionCable mounted at `/cable` with JWT-in-query-param auth; ActiveJob adapter set to `:sidekiq` globally.
 - Phase 3 (social + ingestion) — **✔ complete**. `SocialConnection` (UUID, unique per user+provider) with Rails-8 ActiveRecord encryption on `access_token` + `refresh_token`; per-platform flat controllers (`InstagramController`, `FacebookController`, `TwitterController`, `SpotifyController`) sharing an `Api::V1::SocialBaseController` that provides `status`/`disconnect`/`extract_insights`; Spotify full server-side OAuth flow (`auth_url` w/ signed state, `callback` exchanges code); Instagram upload-based ingestion; Sidekiq jobs `InstagramIngestJob`, `FetchSocialDataJob` (per-provider Graph/Web-API pulls), and `ExtractInsightsJob` chained via `AiAgentsClient#extract_insights` which routes to `/internal/insights/extract-instagram` or `/extract-social` per platform.
 - Phase 4 (proactive + notifications) — **✔ complete**. `Proactive::SkillRegistry` Ruby port (`app/services/proactive/skill_registry.rb`) with the four default skills (`generic_greeting`, `fun_fact`, `motivation`, `news`), identical time-of-day weights and anti-repetition penalty as the Django original; `Api::V1::ProactiveGreetingsController#create` at `POST /api/v1/chat/proactive-greeting` selects a skill, calls FastAPI `/internal/chat/proactive-generate`, persists the reply as a proactive `Message` (role=assistant, `proactive_skill` stamped), updates `User.last_proactive_skill/at` + optional GPS; `DeviceToken` model (UUID, one active per token, platform enum ios|android|web); `Api::V1::DeviceTokensController` for register/unregister/test-push; `PushNotificationJob` (Sidekiq) hits FCM legacy `/fcm/send` or no-ops when `FCM_SERVER_KEY` is unset (dev-safe).
-- Phase 5 (web admin) — **next**. Hotwire/Turbo pages for Instagram ingestion panel (replaces `gln-web-front` Next.js), admin dashboard, role-gated `/admin/*`.
+- Phase 5 (web admin) — **✔ complete**. `/admin` Hotwire pages under `Admin::AdminController` (Devise cookie session + `ensure_admin!` on `current_user.admin?`); rewritten `Admin::DashboardController#index` with go-live metrics (users/onboarded/admin count, conversations + messages + proactive count, per-provider social-connection totals, active device-token count, recent users, recent messages); `Admin::InstagramController#index` + `#extract` lists `SocialConnection.for("instagram")` with item counts + last-ingested timestamp, and a "Re-extraer" button that fires `ExtractInsightsJob` via `button_to`; admin nav updated to expose the Instagram panel; admin layout rebranded Go Live.
+- Phase 6 (Expo polish + web) — **next**. Point the Expo client's base URL + `@rails/actioncable` at Rails, replace `simplejwt` token shape with the `{ access_token, refresh_token, user }` shape, enable the `web` target on Expo SDK 54.
 
 See `../PORT_PLAN.md` §10 for the full phase roadmap.
 
@@ -247,3 +248,20 @@ Device tokens & push:
 | `POST   /api/v1/notifications/test` | — | dev-only; enqueues a test push to every active token |
 
 `PushNotificationJob(device_token_id:, title:, body:, data:)` posts to FCM legacy `/fcm/send` with `FCM_SERVER_KEY` bearer. When the key is unset the job **logs and returns** — pipeline stays exerciseable without a real FCM project. On FCM `NotRegistered`/`InvalidRegistration` responses the token is auto-deactivated.
+
+## Admin panel quick reference
+
+Cookie-session + Devise. Entry point: `/users/sign_in`. Admin gate: `Admin::AdminController#ensure_admin!` checks `current_user.admin?` (role = `administrator`). Layout: `layouts/admin.html.erb` (Hotwire + Turbo + Stimulus + Tailwind).
+
+| Route | Purpose |
+|---|---|
+| `GET  /admin`                             | dashboard (stat cards + recent users + recent messages) |
+| `GET  /admin/users`                       | template users index + role management |
+| `GET  /admin/users/:id`                   | per-user view |
+| `GET  /admin/instagram`                   | list `SocialConnection.for("instagram")` — item counts, last upload |
+| `POST /admin/instagram/:id/extract`       | enqueue `ExtractInsightsJob` for that IG connection |
+
+Dashboard query shape (keep `DashboardController#index` cheap — all counts, no joins heavier than `joins(:roles)`):
+`@users_count`, `@admins_count`, `@onboarded_count`, `@conversations_count`, `@messages_count`, `@proactive_count`, `@social_totals` (per-provider), `@device_tokens_count`, `@recent_users`, `@recent_messages`.
+
+Panel stat cards render through the `admin/dashboard/_stat_card.html.erb` partial — pass `title:`, `value:`, optional `hint:` + `href:` for the "Ver más" link.

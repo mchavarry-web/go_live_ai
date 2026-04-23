@@ -63,7 +63,8 @@ class User < ApplicationRecord
   end
 
   # User profile image URL (not to be confused with the AI `avatar` association).
-  def user_image_display_url(size = :thumb)
+  # Kept as `avatar_url` for compatibility with the template's _user_avatar.html.erb partial.
+  def avatar_url(size = :thumb)
     user_image.present? ? user_image_url(size) : nil
   end
 
