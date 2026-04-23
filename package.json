@@ -1,0 +1,26 @@
+{
+  "name": "go-live-monorepo",
+  "private": true,
+  "workspaces": {
+    "packages": [
+      "apps/backend",
+      "apps/frontend"
+    ],
+    "nohoist": [
+      "apps/backend/**",
+      "apps/backend/**/esbuild",
+      "apps/backend/**/esbuild/**",
+      "apps/backend/**/esbuild-darwin-arm64",
+      "apps/backend/**/esbuild-linux-64",
+      "apps/frontend/**",
+      "apps/frontend/**/react-native",
+      "apps/frontend/**/react-native/**",
+      "apps/frontend/**/expo",
+      "apps/frontend/**/@expo/**",
+      "apps/frontend/**/react",
+      "apps/frontend/**/react-dom",
+      "apps/frontend/**/@react-native/**",
+      "apps/frontend/**/metro**"
+    ]
+  }
+}

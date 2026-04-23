@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Restablecer Contraseña</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background-color: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 32px 24px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .logo {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .logo-icon {
+      width: 64px;
+      height: 64px;
+      background: #4A90D9;
+      border-radius: 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 8px;
+    }
+
+    .logo-icon svg {
+      width: 32px;
+      height: 32px;
+      fill: white;
+    }
+
+    .logo-text {
+      font-size: 24px;
+      font-weight: bold;
+      color: #4A90D9;
+    }
+
+    h2 {
+      font-size: 20px;
+      color: #333;
+      text-align: center;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #666;
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 8px;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #666;
+      font-weight: normal;
+      margin-left: 4px;
+    }
+
+    input[type="password"] {
+      width: 100%;
+      padding: 14px 16px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 16px;
+      background: #f5f5f5;
+      color: #333;
+      transition: border-color 0.2s;
+    }
+
+    input[type="password"]:focus {
+      outline: none;
+      border-color: #4A90D9;
+      background: white;
+    }
+
+    .actions {
+      margin-top: 24px;
+    }
+
+    input[type="submit"] {
+      width: 100%;
+      padding: 16px;
+      background: #4A90D9;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    input[type="submit"]:hover {
+      background: #3A7BC8;
+    }
+
+    input[type="submit"]:active {
+      background: #2A6BB8;
+    }
+
+    .error-messages {
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+    }
+
+    .error-messages h3 {
+      font-size: 14px;
+      color: #dc2626;
+      margin-bottom: 8px;
+    }
+
+    .error-messages ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .error-messages li {
+      font-size: 13px;
+      color: #dc2626;
+      margin-bottom: 4px;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .footer p {
+      font-size: 12px;
+      color: #999;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+        </svg>
+      </div>
+      <div class="logo-text">MiApp</div>
+    </div>
+
+    <h2>Nueva Contraseña</h2>
+    <p class="subtitle">Ingresa tu nueva contraseña</p>
+
+    <% if resource.errors.any? %>
+      <div class="error-messages">
+        <h3>
+          <%= resource.errors.count %> error<%= resource.errors.count > 1 ? "es" : "" %> encontrado<%= resource.errors.count > 1 ? "s" : "" %>:
+        </h3>
+        <ul>
+          <% resource.errors.full_messages.each do |message| %>
+            <li><%= message %></li>
+          <% end %>
+        </ul>
+      </div>
+    <% end %>
+
+    <%= form_for(resource, as: resource_name, url: password_path(resource_name), html: { method: :put }) do |f| %>
+      <%= f.hidden_field :reset_password_token %>
+
+      <div class="field">
+        <%= f.label :password, "Nueva contraseña" %>
+        <span class="hint">(minimo <%= @minimum_password_length %> caracteres)</span>
+        <%= f.password_field :password, autofocus: true, autocomplete: "new-password", placeholder: "Ingresa tu nueva contraseña" %>
+      </div>
+
+      <div class="field">
+        <%= f.label :password_confirmation, "Confirmar contraseña" %>
+        <%= f.password_field :password_confirmation, autocomplete: "new-password", placeholder: "Repite tu nueva contraseña" %>
+      </div>
+
+      <div class="actions">
+        <%= f.submit "Cambiar Contraseña" %>
+      </div>
+    <% end %>
+
+    <div class="footer">
+      <p>Despues de cambiar tu contraseña, podras iniciar sesion en la app.</p>
+    </div>
+  </div>
+</body>
+</html>

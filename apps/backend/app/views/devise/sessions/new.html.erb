@@ -1,0 +1,106 @@
+<div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-md w-full space-y-8">
+    <!-- Logo and Header -->
+    <div>
+      <div class="flex justify-center">
+        <h1 class="text-6xl font-bold" style="color: #E65F00;">MiSOS</h1>
+      </div>
+      <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+        Iniciar Sesión
+      </h2>
+      <p class="mt-2 text-center text-sm text-gray-600">
+        Panel Administrativo
+      </p>
+    </div>
+
+    <!-- Flash Messages -->
+    <% flash.each do |type, message| %>
+      <%
+        case type.to_sym
+        when :notice
+          bg_class = "bg-green-50 border-green-400 text-green-700"
+          icon_color = "text-green-400"
+        when :alert, :error
+          bg_class = "bg-red-50 border-red-400 text-red-700"
+          icon_color = "text-red-400"
+        else
+          bg_class = "bg-yellow-50 border-yellow-400 text-yellow-700"
+          icon_color = "text-yellow-400"
+        end
+      %>
+      <div class="<%= bg_class %> border-l-4 p-4 rounded-md" data-controller="dismissible">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <% if type.to_sym == :notice %>
+              <svg class="h-5 w-5 <%= icon_color %>" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+              </svg>
+            <% else %>
+              <svg class="h-5 w-5 <%= icon_color %>" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+              </svg>
+            <% end %>
+          </div>
+          <div class="ml-3 flex-1">
+            <p class="text-sm font-medium"><%= message %></p>
+          </div>
+          <button type="button" class="-mx-1.5 -my-1.5 rounded-md p-1.5 inline-flex hover:bg-gray-100 focus:outline-none" data-action="click->dismissible#dismiss">
+            <span class="sr-only">Cerrar</span>
+            <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    <% end %>
+
+    <!-- Login Form -->
+    <%= form_for(resource, as: resource_name, url: session_path(resource_name), html: { class: "mt-8 space-y-6" }) do |f| %>
+      <%= render "devise/shared/error_messages", resource: resource %>
+
+      <div class="rounded-md shadow-sm -space-y-px">
+        <!-- Email -->
+        <div>
+          <%= f.label :email, "Email", class: "sr-only" %>
+          <%= f.email_field :email,
+              autofocus: true,
+              autocomplete: "email",
+              required: true,
+              class: "appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-orange-500 focus:border-orange-500 focus:z-10 sm:text-sm",
+              placeholder: "Email" %>
+        </div>
+
+        <!-- Password -->
+        <div>
+          <%= f.label :password, "Contraseña", class: "sr-only" %>
+          <%= f.password_field :password,
+              autocomplete: "current-password",
+              required: true,
+              class: "appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-orange-500 focus:border-orange-500 focus:z-10 sm:text-sm",
+              placeholder: "Contraseña" %>
+        </div>
+      </div>
+
+      <!-- Remember Me -->
+      <% if devise_mapping.rememberable? %>
+        <div class="flex items-center">
+          <%= f.check_box :remember_me,
+              class: "h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded" %>
+          <%= f.label :remember_me, "Recordarme", class: "ml-2 block text-sm text-gray-900" %>
+        </div>
+      <% end %>
+
+      <!-- Submit Button -->
+      <div>
+        <%= f.submit "Iniciar Sesión",
+            class: "group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500",
+            style: "background-color: #E65F00;" %>
+      </div>
+
+      <!-- Links -->
+      <div class="text-center">
+        <%= render "devise/shared/links" %>
+      </div>
+    <% end %>
+  </div>
+</div>

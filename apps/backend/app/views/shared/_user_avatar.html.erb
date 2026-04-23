@@ -1,0 +1,24 @@
+<% user = local_assigns[:user] %>
+<% size = local_assigns[:size] || "md" %>
+<% image_size = local_assigns[:image_size] || :thumb %>
+
+<%
+  size_classes = case size
+  when "sm"
+    "h-8 w-8 text-xs"
+  when "lg"
+    "h-16 w-16 text-2xl"
+  else # md
+    "h-10 w-10 text-sm"
+  end
+%>
+
+<% if user.avatar_url(image_size).present? %>
+  <%= image_tag user.avatar_url(image_size),
+                class: "#{size_classes} rounded-full object-cover",
+                alt: user.name %>
+<% else %>
+  <div class="<%= size_classes %> rounded-full bg-orange-100 flex items-center justify-center">
+    <span class="font-medium text-orange-800"><%= user.avatar_initials %></span>
+  </div>
+<% end %>

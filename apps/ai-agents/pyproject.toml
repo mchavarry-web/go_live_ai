@@ -1,0 +1,98 @@
+[project]
+name = "golive-ai-agents"
+version = "0.1.0"
+description = "Go Life - AI Agents Service (LangChain + LangSmith)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # FastAPI
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.5.3",
+    "pydantic-settings>=2.1.0",
+
+    # LangChain Core
+    "langchain>=0.1.0",
+    "langchain-core>=0.1.0",
+    "langchain-community>=0.0.10",
+
+    # LangChain LLM Providers
+    "langchain-openai>=0.0.5",
+    "langchain-anthropic>=0.1.1",
+
+    # LangChain Vector Store
+    "langchain-postgres>=0.0.1",
+    "pgvector>=0.2.4",
+
+    # LangSmith (Observability)
+    "langsmith>=0.0.87",
+
+    # Database
+    "sqlalchemy[asyncio]>=2.0.25",
+    "asyncpg>=0.29.0",
+
+    # Cache
+    "redis>=5.0.1",
+
+    # HTTP Client
+    "httpx>=0.26.0",
+
+    # Utils
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.4",
+    "pytest-asyncio>=0.23.3",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.13",
+    "black>=24.1.0",
+    "isort>=5.13.2",
+    "pyright>=1.1.347",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportUnusedImport = true
+reportUnusedVariable = true
+reportPrivateUsage = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "ARG",    # flake8-unused-arguments
+    "SIM",    # flake8-simplify
+]
+ignore = ["E501"]
+
+[tool.ruff.isort]
+known-first-party = ["app"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

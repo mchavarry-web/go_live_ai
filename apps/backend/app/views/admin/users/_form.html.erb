@@ -1,0 +1,176 @@
+<%= simple_form_for [:admin, user], html: { data: { turbo: false } } do |f| %>
+  <% if user.errors.any? %>
+    <div class="rounded-md bg-red-50 p-4 mb-6">
+      <div class="flex">
+        <div class="flex-shrink-0">
+          <svg class="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+          </svg>
+        </div>
+        <div class="ml-3">
+          <h3 class="text-sm font-medium text-red-800">
+            <%= pluralize(user.errors.count, "error", "errores") %> impiden guardar este usuario:
+          </h3>
+          <div class="mt-2 text-sm text-red-700">
+            <ul class="list-disc pl-5 space-y-1">
+              <% user.errors.full_messages.each do |message| %>
+                <li><%= message %></li>
+              <% end %>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+    <!-- First Name -->
+    <div>
+      <%= f.input :first_name,
+                  label: "Nombre",
+                  input_html: { class: "form-input", autocomplete: "given-name" } %>
+    </div>
+
+    <!-- Last Name -->
+    <div>
+      <%= f.input :last_name,
+                  label: "Apellido",
+                  input_html: { class: "form-input", autocomplete: "family-name" } %>
+    </div>
+
+    <!-- Email -->
+    <div>
+      <%= f.input :email,
+                  label: "Email",
+                  input_html: { class: "form-input", autocomplete: "email" } %>
+    </div>
+
+    <!-- Phone Number -->
+    <div>
+      <%= f.input :phone_number,
+                  label: "Teléfono",
+                  input_html: { class: "form-input", autocomplete: "tel" } %>
+    </div>
+
+    <!-- User Profile Image -->
+    <div class="sm:col-span-2" data-controller="image-preview">
+      <%= f.input :user_image,
+                  label: "Foto de Perfil (opcional)",
+                  as: :file,
+                  input_html: {
+                    class: "mt-1 focus:ring-orange-500 focus:border-orange-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md",
+                    accept: "image/*",
+                    data: {
+                      "image-preview-target": "input",
+                      action: "change->image-preview#preview"
+                    }
+                  },
+                  hint: "Sube una imagen para el perfil del usuario (máximo 5MB). Formatos: JPG, PNG, GIF, WebP" %>
+
+      <div class="mt-3 flex items-start space-x-4">
+        <!-- Current Image (if exists) -->
+        <% if user.user_image_url.present? %>
+          <div>
+            <p class="text-sm text-gray-600 mb-2">Imagen actual:</p>
+            <img src="<%= user.user_image_url(:thumb) %>" alt="Foto actual" class="w-20 h-20 rounded-full object-cover border-2 border-gray-300" />
+          </div>
+        <% end %>
+
+        <!-- Preview of new image (hidden by default) -->
+        <div data-image-preview-target="previewContainer" class="hidden">
+          <p class="text-sm text-gray-600 mb-2">Vista previa:</p>
+          <img data-image-preview-target="preview"
+               class="w-20 h-20 rounded-full object-cover border-2 border-gray-300"
+               alt="Vista previa" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Roles -->
+    <div class="sm:col-span-2">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Roles</label>
+      <div class="space-y-2">
+        <% @available_roles.each do |role| %>
+          <div class="flex items-center">
+            <%= check_box_tag "user[role_ids][]",
+                role.id,
+                user.role_ids.include?(role.id),
+                id: "user_role_#{role.id}",
+                class: "form-checkbox" %>
+            <%= label_tag "user_role_#{role.id}",
+                role.name.humanize,
+                class: "ml-2 text-sm text-gray-700" %>
+            <% if role.description.present? %>
+              <span class="ml-2 text-xs text-gray-500">(<%= role.description %>)</span>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    </div>
+
+    <!-- Password Section -->
+    <div class="sm:col-span-2 pt-6 border-t border-gray-200">
+      <h3 class="text-lg font-medium text-gray-900 mb-4">
+        <%= user.new_record? ? "Contraseña (opcional)" : "Cambiar Contraseña (dejar en blanco para mantener)" %>
+      </h3>
+
+      <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <!-- Password -->
+        <div>
+          <%= f.input :password,
+                      label: "Contraseña",
+                      input_html: {
+                        autocomplete: "new-password",
+                        class: "form-input"
+                      },
+                      hint: user.new_record? ? "Se generará automáticamente si se deja en blanco" : "" %>
+        </div>
+
+        <!-- Password Confirmation -->
+        <div>
+          <%= f.input :password_confirmation,
+                      label: "Confirmar Contraseña",
+                      input_html: {
+                        autocomplete: "new-password",
+                        class: "form-input"
+                      } %>
+        </div>
+      </div>
+    </div>
+
+    <!-- Two-Factor Authentication -->
+    <div class="sm:col-span-2 pt-6 border-t border-gray-200">
+      <h3 class="text-lg font-medium text-gray-900 mb-4">Autenticación de Dos Factores</h3>
+
+      <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <!-- 2FA Enabled -->
+        <div>
+          <div class="flex items-center">
+            <%= f.input :two_factor_enabled,
+                        label: "Habilitar autenticación de dos factores",
+                        as: :boolean,
+                        input_html: { class: "form-checkbox" } %>
+          </div>
+        </div>
+
+        <!-- 2FA Method -->
+        <div>
+          <%= f.input :two_factor_method,
+                      label: "Método de 2FA",
+                      collection: [["SMS", "sms"], ["Aplicación Autenticadora", "authenticator"]],
+                      include_blank: "Seleccionar método",
+                      input_html: { class: "form-select" } %>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Submit Buttons -->
+  <div class="flex justify-end space-x-3 mt-6">
+    <%= link_to "Cancelar", admin_users_path,
+        class: "inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500" %>
+    <%= f.submit user.new_record? ? "Crear Usuario" : "Actualizar Usuario",
+        class: "inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500",
+        style: "background-color: #E65F00;" %>
+  </div>
+<% end %>

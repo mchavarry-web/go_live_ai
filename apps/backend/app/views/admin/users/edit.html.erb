@@ -1,0 +1,25 @@
+<div class="px-4 sm:px-6 lg:px-8">
+  <!-- Page Header -->
+  <div class="md:flex md:items-center md:justify-between">
+    <div class="flex-1 min-w-0">
+      <h2 class="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
+        Editar Usuario: <%= @user.name %>
+      </h2>
+    </div>
+  </div>
+
+  <!-- Form -->
+  <div class="mt-8 max-w-3xl">
+    <div class="bg-white shadow sm:rounded-lg">
+      <div class="px-4 py-5 sm:p-6">
+        <%= render "form", user: @user %>
+      </div>
+    </div>
+
+    <!-- Back Button -->
+    <div class="mt-6">
+      <%= link_to "← Volver a Usuarios", admin_users_path,
+          class: "text-sm font-medium text-orange-600 hover:text-orange-500" %>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,6 @@
+rails:     cd apps/backend && bin/rails server -p 3000
+jsbundle:  cd apps/backend && yarn build --watch
+cssbundle: cd apps/backend && yarn build:css --watch
+sidekiq:   cd apps/backend && bundle exec sidekiq
+ai-agents: cd apps/ai-agents && uvicorn app.main:app --reload --port 8001
+expo:      cd apps/frontend && yarn start

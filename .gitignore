@@ -1,0 +1,26 @@
+# Root-level ignores — per-app ignores live under each apps/<name>/.gitignore.
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+.yarn/install-state.gz
+.yarn/cache
+.pnp.*
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+
+# OS
+Thumbs.db

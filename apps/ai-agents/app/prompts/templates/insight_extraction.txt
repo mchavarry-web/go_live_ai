@@ -1,0 +1,12 @@
+Analiza el siguiente mensaje del usuario y extrae insights sobre su personalidad,
+preferencias, historia personal, relaciones, metas o emociones.
+
+Mensaje del usuario: {message}
+
+Contexto previo del usuario:
+{context}
+
+Extrae solo insights que tengan alta confianza (>0.7). Si no hay insights claros,
+devuelve una lista vacía.
+
+{format_instructions}

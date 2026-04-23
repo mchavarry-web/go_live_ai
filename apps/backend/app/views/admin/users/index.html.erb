@@ -1,0 +1,31 @@
+<%= render "shared/admin/page_header" do %>
+  <div class="flex flex-col items-start justify-between space-y-2 lg:space-y-0 lg:space-x-4 lg:items-center lg:flex-row">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Usuarios</h1>
+      <p class="text-slate-600 dark:text-slate-400">Lista de todos los usuarios internos del sistema</p>
+    </div>
+  </div>
+<% end %>
+
+<%= render "shared/admin/page_body" do %>
+  <div data-controller="datatable" data-datatable-options-value="<%= @datatable_options %>server_side:true;">
+    <div class="py-2 bg-white border rounded-lg shadow border-slate-300/80 shadow-slate-100 dark:shadow-slate-950 dark:bg-slate-800 dark:border-slate-600/80">
+      <table id="datatable-element" class="min-w-full bg-white dark:bg-slate-800">
+        <thead>
+          <tr>
+            <th class="px-4 py-2 text-left">ID</th>
+            <th class="px-4 py-2 text-left">Nombre</th>
+            <th class="px-4 py-2 text-left">Correo Electrónico</th>
+            <th class="px-4 py-2 text-left">Teléfono</th>
+            <th class="px-4 py-2 text-left">Rol</th>
+            <th class="px-4 py-2 text-left">Organización</th>
+            <th class="px-4 py-2 text-left">2FA</th>
+            <th class="px-4 py-2 text-left">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+        </tbody>
+      </table>
+    </div>
+  </div>
+<% end %>

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <title>MiSOS - Panel Administrativo</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+
+    <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
+    <%= javascript_include_tag "application", "data-turbo-track": "reload", type: "module" %>
+
+    <!-- DataTables CSS - use plain link tags for external CDN to avoid preload warnings -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/2.1.3/css/dataTables.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/3.2.0/css/buttons.dataTables.min.css">
+
+    <style>
+      :root {
+        --primary-orange: #E65F00;
+        --primary-dark: #CC5500;
+      }
+    </style>
+  </head>
+
+  <body class="bg-gray-50">
+    <%= render "shared/admin/nav" %>
+
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <%= render "shared/flash" %>
+      <%= yield %>
+    </main>
+  </body>
+</html>

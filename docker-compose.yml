@@ -1,0 +1,37 @@
+services:
+  postgres-backend:
+    image: postgres:16
+    container_name: go-live-postgres-backend
+    environment:
+      POSTGRES_USER: go_live
+      POSTGRES_PASSWORD: go_live
+      POSTGRES_DB: go_live_backend_development
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_backend_data:/var/lib/postgresql/data
+
+  postgres-ai:
+    image: pgvector/pgvector:pg16
+    container_name: go-live-postgres-ai
+    environment:
+      POSTGRES_USER: go_live
+      POSTGRES_PASSWORD: go_live
+      POSTGRES_DB: go_live_ai_agents_development
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_ai_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: go-live-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_backend_data:
+  postgres_ai_data:
+  redis_data:

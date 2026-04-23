@@ -1,0 +1,728 @@
+# Go Life - AI Agents Service (LangChain + LangSmith)
+
+## Project Context
+
+You are working on **Go Life**, a mobile app that creates a personalized digital avatar. This is the **AI Agents** service - the intelligence brain, built with **LangChain** and monitored with **LangSmith**.
+
+### Architecture Overview
+
+```
+Mobile App → API-BACKEND (Django) → AI-AGENTS (this - LangChain)
+                                          ↓
+                                    PostgreSQL + pgvector
+                                    LangSmith (observability)
+                                    OpenAI / Anthropic (LLMs)
+```
+
+### Your Responsibilities
+
+- Generate avatar responses using LangChain (OpenAI/Claude)
+- Manage avatar memory with LangChain Memory components
+- Extract insights using LangChain chains
+- Generate and search embeddings with LangChain
+- Build personalized prompts with LangChain PromptTemplates
+- Monitor all LLM calls with LangSmith
+- Sentiment and emotion analysis
+
+### NOT Your Responsibilities
+
+- User authentication (api-backend does this)
+- Social network connections (api-backend does this)
+- Storing conversations (api-backend does this)
+
+---
+
+## Tech Stack
+
+```
+Runtime:        Python 3.11+
+Framework:      FastAPI 0.100+
+LLM Framework:  LangChain 0.1+
+Observability:  LangSmith
+LLM Providers:  langchain-openai, langchain-anthropic
+Embeddings:     LangChain Embeddings (OpenAI, etc.)
+Vector Store:   LangChain pgvector integration
+Validation:     Pydantic v2
+ORM:            SQLAlchemy 2.0 (async)
+Database:       PostgreSQL 16 + pgvector
+Cache:          Redis
+Type Checking:  Pyright (strict mode)
+Linting:        Ruff
+Formatting:     Black + isort
+Testing:        Pytest + pytest-asyncio
+```
+
+---
+
+## Code Guidelines
+
+### Type Hints - MANDATORY
+
+ALL functions must have explicit type hints.
+
+### Project Structure
+
+```
+ai-agents/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                     # FastAPI application
+│   │
+│   ├── config/
+│   │   ├── __init__.py
+│   │   ├── settings.py             # Pydantic Settings
+│   │   └── langsmith.py            # LangSmith configuration
+│   │
+│   ├── api/
+│   │   ├── __init__.py
+│   │   ├── deps.py                 # Dependency injection
+│   │   └── routes/
+│   │       ├── __init__.py
+│   │       ├── chat.py             # /internal/chat/*
+│   │       ├── memory.py           # /internal/memory/*
+│   │       └── health.py           # /health
+│   │
+│   ├── chains/                     # LangChain chains
+│   │   ├── __init__.py
+│   │   ├── avatar_chain.py         # Main avatar conversation chain
+│   │   ├── insight_chain.py        # Insight extraction chain
+│   │   └── sentiment_chain.py      # Sentiment analysis chain
+│   │
+│   ├── agents/                     # LangChain agents (if needed)
+│   │   ├── __init__.py
+│   │   └── avatar_agent.py
+│   │
+│   ├── prompts/                    # LangChain prompt templates
+│   │   ├── __init__.py
+│   │   ├── avatar_prompts.py       # Avatar system prompts
+│   │   ├── insight_prompts.py      # Insight extraction prompts
+│   │   └── templates/              # Prompt template files
+│   │       ├── avatar_system.txt
+│   │       └── insight_extraction.txt
+│   │
+│   ├── memory/                     # LangChain memory components
+│   │   ├── __init__.py
+│   │   ├── conversation_memory.py  # Conversation buffer
+│   │   ├── vector_memory.py        # Vector store memory
+│   │   └── combined_memory.py      # Combined memory strategy
+│   │
+│   ├── llm/                        # LLM provider configuration
+│   │   ├── __init__.py
+│   │   ├── providers.py            # LLM factory (OpenAI, Anthropic)
+│   │   └── callbacks.py            # Custom LangChain callbacks
+│   │
+│   ├── embeddings/
+│   │   ├── __init__.py
+│   │   ├── embedder.py             # LangChain embeddings
+│   │   └── vector_store.py         # pgvector with LangChain
+│   │
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── schemas.py              # Pydantic models (API)
+│   │   └── database.py             # SQLAlchemy models
+│   │
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── chat_service.py         # Orchestrates chains
+│   │   ├── memory_service.py       # Memory operations
+│   │   └── insight_service.py      # Insight operations
+│   │
+│   └── utils/
+│       ├── __init__.py
+│       └── langsmith_utils.py      # LangSmith helpers
+│
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py
+│   ├── test_chains.py
+│   └── test_memory.py
+│
+├── pyproject.toml
+├── requirements.txt
+├── .env.example
+└── Dockerfile
+```
+
+---
+
+## LangChain Components
+
+### LLM Provider Factory
+
+```python
+# llm/providers.py
+from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models import BaseChatModel
+
+from app.config.settings import Settings
+
+
+def get_llm(settings: Settings) -> BaseChatModel:
+    """Get the configured LLM provider."""
+    if settings.llm_provider == "openai":
+        return ChatOpenAI(
+            model=settings.openai_model,
+            temperature=settings.llm_temperature,
+            max_tokens=settings.llm_max_tokens,
+            api_key=settings.openai_api_key,
+        )
+    elif settings.llm_provider == "anthropic":
+        return ChatAnthropic(
+            model=settings.anthropic_model,
+            temperature=settings.llm_temperature,
+            max_tokens=settings.llm_max_tokens,
+            api_key=settings.anthropic_api_key,
+        )
+    else:
+        raise ValueError(f"Unknown LLM provider: {settings.llm_provider}")
+
+
+def get_embeddings(settings: Settings):
+    """Get the configured embeddings model."""
+    from langchain_openai import OpenAIEmbeddings
+
+    return OpenAIEmbeddings(
+        model=settings.embedding_model,
+        api_key=settings.openai_api_key,
+    )
+```
+
+### Avatar Conversation Chain
+
+```python
+# chains/avatar_chain.py
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from langchain_core.language_models import BaseChatModel
+from langsmith import traceable
+
+from app.prompts.avatar_prompts import get_avatar_system_prompt
+from app.models.schemas import UserProfile, ChatGenerateRequest
+
+
+class AvatarChain:
+    """LangChain chain for avatar conversations."""
+
+    def __init__(self, llm: BaseChatModel) -> None:
+        self.llm = llm
+        self.output_parser = StrOutputParser()
+
+    def _build_prompt(self) -> ChatPromptTemplate:
+        """Build the chat prompt template."""
+        return ChatPromptTemplate.from_messages([
+            ("system", "{system_prompt}"),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{input}"),
+        ])
+
+    @traceable(name="avatar_response")
+    async def invoke(
+        self,
+        request: ChatGenerateRequest,
+        relevant_insights: list[str],
+    ) -> str:
+        """Generate avatar response with LangSmith tracing."""
+        # Build dynamic system prompt
+        system_prompt = get_avatar_system_prompt(
+            user_profile=request.user_profile,
+            social_data=request.social_data,
+            health_data=request.health_data,
+            insights=relevant_insights,
+        )
+
+        # Build the chain
+        prompt = self._build_prompt()
+        chain = prompt | self.llm | self.output_parser
+
+        # Convert history to LangChain messages
+        chat_history = self._convert_history(request.conversation_history)
+
+        # Invoke with tracing
+        response = await chain.ainvoke({
+            "system_prompt": system_prompt,
+            "chat_history": chat_history,
+            "input": request.message,
+        })
+
+        return response
+
+    def _convert_history(
+        self,
+        history: list[dict[str, str]],
+    ) -> list:
+        """Convert history to LangChain message format."""
+        from langchain_core.messages import HumanMessage, AIMessage
+
+        messages = []
+        for msg in history[-20:]:  # Last 20 messages
+            if msg["role"] == "user":
+                messages.append(HumanMessage(content=msg["content"]))
+            else:
+                messages.append(AIMessage(content=msg["content"]))
+        return messages
+```
+
+### Insight Extraction Chain
+
+```python
+# chains/insight_chain.py
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.language_models import BaseChatModel
+from langsmith import traceable
+from pydantic import BaseModel, Field
+
+
+class ExtractedInsight(BaseModel):
+    """Schema for extracted insights."""
+    category: str = Field(description="Category: personal_history, preference, relationship, goal, emotion, health")
+    content: str = Field(description="The insight content in Spanish")
+    confidence: float = Field(description="Confidence score 0.0-1.0")
+
+
+class ExtractedInsights(BaseModel):
+    """List of extracted insights."""
+    insights: list[ExtractedInsight] = Field(default_factory=list)
+
+
+class InsightExtractionChain:
+    """Chain for extracting insights from user messages."""
+
+    EXTRACTION_PROMPT = """Analiza el siguiente mensaje del usuario y extrae insights sobre su personalidad, preferencias, historia personal, relaciones, metas o emociones.
+
+Mensaje del usuario: {message}
+
+Contexto previo del usuario:
+{context}
+
+Extrae solo insights que tengan alta confianza (>0.7). Si no hay insights claros, devuelve una lista vacía.
+
+{format_instructions}
+"""
+
+    def __init__(self, llm: BaseChatModel) -> None:
+        self.llm = llm
+        self.parser = PydanticOutputParser(pydantic_object=ExtractedInsights)
+
+    @traceable(name="extract_insights")
+    async def invoke(
+        self,
+        message: str,
+        context: str = "",
+    ) -> list[ExtractedInsight]:
+        """Extract insights from a message."""
+        prompt = ChatPromptTemplate.from_template(self.EXTRACTION_PROMPT)
+
+        chain = prompt | self.llm | self.parser
+
+        result = await chain.ainvoke({
+            "message": message,
+            "context": context,
+            "format_instructions": self.parser.get_format_instructions(),
+        })
+
+        return result.insights
+```
+
+### Vector Memory with pgvector
+
+```python
+# memory/vector_memory.py
+from langchain_postgres.vectorstores import PGVector
+from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
+from langsmith import traceable
+
+from app.config.settings import Settings
+
+
+class VectorMemory:
+    """Vector store memory using pgvector via LangChain."""
+
+    def __init__(
+        self,
+        embeddings: Embeddings,
+        settings: Settings,
+    ) -> None:
+        self.embeddings = embeddings
+        self.collection_name = "user_insights"
+
+        self.vector_store = PGVector(
+            embeddings=embeddings,
+            collection_name=self.collection_name,
+            connection=settings.database_url,
+            use_jsonb=True,
+        )
+
+    @traceable(name="search_similar_insights")
+    async def search_similar(
+        self,
+        query: str,
+        user_id: str,
+        k: int = 5,
+    ) -> list[Document]:
+        """Search for similar insights using vector similarity."""
+        # Filter by user_id in metadata
+        results = await self.vector_store.asimilarity_search(
+            query=query,
+            k=k,
+            filter={"user_id": user_id},
+        )
+        return results
+
+    @traceable(name="add_insight")
+    async def add_insight(
+        self,
+        user_id: str,
+        content: str,
+        category: str,
+        confidence: float,
+    ) -> str:
+        """Add an insight to the vector store."""
+        doc = Document(
+            page_content=content,
+            metadata={
+                "user_id": user_id,
+                "category": category,
+                "confidence": confidence,
+            },
+        )
+
+        ids = await self.vector_store.aadd_documents([doc])
+        return ids[0]
+
+    async def delete_user_insights(self, user_id: str) -> None:
+        """Delete all insights for a user (GDPR)."""
+        # Use the vector store's delete method with filter
+        await self.vector_store.adelete(filter={"user_id": user_id})
+```
+
+### LangSmith Configuration
+
+```python
+# config/langsmith.py
+import os
+from functools import lru_cache
+
+from langsmith import Client
+from langchain_core.tracers import LangChainTracer
+
+from app.config.settings import Settings
+
+
+@lru_cache
+def get_langsmith_client(settings: Settings) -> Client | None:
+    """Get LangSmith client if configured."""
+    if not settings.langsmith_api_key:
+        return None
+
+    # Set environment variables for LangChain auto-tracing
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_API_KEY"] = settings.langsmith_api_key
+    os.environ["LANGCHAIN_PROJECT"] = settings.langsmith_project
+
+    return Client(api_key=settings.langsmith_api_key)
+
+
+def get_tracer(settings: Settings) -> LangChainTracer | None:
+    """Get LangChain tracer for manual tracing."""
+    if not settings.langsmith_api_key:
+        return None
+
+    return LangChainTracer(
+        project_name=settings.langsmith_project,
+    )
+```
+
+### Main Chat Service
+
+```python
+# services/chat_service.py
+import asyncio
+from langsmith import traceable
+
+from app.chains.avatar_chain import AvatarChain
+from app.chains.insight_chain import InsightExtractionChain
+from app.memory.vector_memory import VectorMemory
+from app.models.schemas import ChatGenerateRequest, ChatGenerateResponse, Insight
+
+
+class ChatService:
+    """Orchestrates chat generation using LangChain components."""
+
+    def __init__(
+        self,
+        avatar_chain: AvatarChain,
+        insight_chain: InsightExtractionChain,
+        vector_memory: VectorMemory,
+    ) -> None:
+        self.avatar_chain = avatar_chain
+        self.insight_chain = insight_chain
+        self.vector_memory = vector_memory
+
+    @traceable(name="generate_chat_response", run_type="chain")
+    async def generate_response(
+        self,
+        request: ChatGenerateRequest,
+    ) -> ChatGenerateResponse:
+        """Generate avatar response with full LangSmith tracing."""
+
+        # 1. Search for relevant insights (parallel with sentiment)
+        similar_docs = await self.vector_memory.search_similar(
+            query=request.message,
+            user_id=request.user_id,
+            k=5,
+        )
+        relevant_insights = [doc.page_content for doc in similar_docs]
+
+        # 2. Generate avatar response
+        response_text = await self.avatar_chain.invoke(
+            request=request,
+            relevant_insights=relevant_insights,
+        )
+
+        # 3. Extract insights from user message (can run in background)
+        new_insights = await self.insight_chain.invoke(
+            message=request.message,
+            context="\n".join(relevant_insights),
+        )
+
+        # 4. Store high-confidence insights
+        stored_insights: list[Insight] = []
+        for insight in new_insights:
+            if insight.confidence >= 0.7:
+                insight_id = await self.vector_memory.add_insight(
+                    user_id=request.user_id,
+                    content=insight.content,
+                    category=insight.category,
+                    confidence=insight.confidence,
+                )
+                stored_insights.append(Insight(
+                    id=insight_id,
+                    user_id=request.user_id,
+                    category=insight.category,
+                    content=insight.content,
+                    confidence=insight.confidence,
+                    source="conversation",
+                ))
+
+        return ChatGenerateResponse(
+            response=response_text,
+            new_insights=stored_insights,
+            tokens_used=0,  # LangSmith tracks this automatically
+        )
+```
+
+### Prompt Templates
+
+```python
+# prompts/avatar_prompts.py
+from app.models.schemas import UserProfile
+
+
+def get_avatar_system_prompt(
+    user_profile: UserProfile,
+    social_data: dict | None = None,
+    health_data: dict | None = None,
+    insights: list[str] | None = None,
+) -> str:
+    """Build dynamic system prompt for avatar."""
+
+    # Format interests
+    interests_str = ", ".join(user_profile.interests) if user_profile.interests else "No especificados"
+
+    # Format social data section
+    social_section = ""
+    if social_data and social_data.get("facebook"):
+        fb = social_data["facebook"]
+        if likes := fb.get("likes"):
+            social_section = f"\nDATOS DE FACEBOOK:\n- Páginas que le gustan: {', '.join(likes[:10])}"
+
+    # Format health section
+    health_section = ""
+    if health_data and health_data.get("steps"):
+        health_section = f"""
+ACTIVIDAD DE HOY:
+- Pasos: {health_data.get('steps')}
+- Promedio: {health_data.get('avg_steps', 'No disponible')}"""
+
+    # Format insights section
+    insights_section = "- Aún no tienes suficiente información"
+    if insights:
+        insights_section = "\n".join(f"- {insight}" for insight in insights[:10])
+
+    return f"""Eres {user_profile.avatar_name}, el avatar digital de {user_profile.display_name}.
+
+SOBRE TI:
+- No eres {user_profile.display_name}, pero estás hecho a partir de él/ella
+- Tu rol es ser un compañero que lo conoce profundamente
+- Hablas de forma cálida, cercana y natural
+- Recuerdas cosas que te ha contado antes
+
+PERFIL DE {user_profile.display_name}:
+- Edad: {user_profile.age_range or "No especificado"}
+- Intereses: {interests_str}
+{social_section}
+{health_section}
+
+COSAS QUE SABES DE {user_profile.display_name}:
+{insights_section}
+
+INSTRUCCIONES:
+1. Responde de forma conversacional y empática
+2. Usa la información que conoces de forma natural, no la listes
+3. Si mencionó algo importante antes, puedes recordárselo sutilmente
+4. Haz preguntas para conocerlo mejor cuando sea apropiado
+5. No seas invasivo, usa los datos con tacto
+6. Nivel de conocimiento actual: {user_profile.knowledge_level}/5
+7. Responde en el mismo idioma que el usuario"""
+```
+
+---
+
+## FastAPI Integration
+
+```python
+# api/routes/chat.py
+from fastapi import APIRouter, Depends, HTTPException
+from langsmith import traceable
+
+from app.api.deps import get_chat_service
+from app.models.schemas import ChatGenerateRequest, ChatGenerateResponse
+from app.services.chat_service import ChatService
+
+router = APIRouter(prefix="/internal/chat", tags=["Chat"])
+
+
+@router.post("/generate", response_model=ChatGenerateResponse)
+@traceable(name="chat_endpoint")
+async def generate_chat_response(
+    request: ChatGenerateRequest,
+    chat_service: ChatService = Depends(get_chat_service),
+) -> ChatGenerateResponse:
+    """Generate avatar response with LangSmith tracing."""
+    try:
+        return await chat_service.generate_response(request)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+```python
+# api/deps.py
+from functools import lru_cache
+from typing import Annotated
+
+from fastapi import Depends
+
+from app.config.settings import Settings
+from app.llm.providers import get_llm, get_embeddings
+from app.chains.avatar_chain import AvatarChain
+from app.chains.insight_chain import InsightExtractionChain
+from app.memory.vector_memory import VectorMemory
+from app.services.chat_service import ChatService
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+def get_chat_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ChatService:
+    """Build chat service with all LangChain components."""
+    llm = get_llm(settings)
+    embeddings = get_embeddings(settings)
+
+    avatar_chain = AvatarChain(llm=llm)
+    insight_chain = InsightExtractionChain(llm=llm)
+    vector_memory = VectorMemory(embeddings=embeddings, settings=settings)
+
+    return ChatService(
+        avatar_chain=avatar_chain,
+        insight_chain=insight_chain,
+        vector_memory=vector_memory,
+    )
+```
+
+---
+
+## API Endpoints
+
+### Priority 1 (Week 1)
+- GET `/health` - Health check
+- POST `/internal/chat/generate` - Generate avatar response (LangChain + LangSmith)
+
+### Priority 2 (Week 2)
+- POST `/internal/chat/stream` - Stream response (LangChain streaming)
+- GET `/internal/memory/{user_id}` - Get user memory
+- DELETE `/internal/memory/{user_id}` - Delete memory (GDPR)
+- POST `/internal/insights/extract` - Extract insights
+
+### Priority 3 (Week 3)
+- POST `/internal/analysis/sentiment` - Sentiment analysis chain
+
+---
+
+## LangSmith Dashboard
+
+All LLM calls are automatically traced to LangSmith:
+- View traces at: https://smith.langchain.com
+- Project name: Configured via `LANGSMITH_PROJECT`
+- Traces include: latency, tokens, cost, inputs/outputs
+
+### What Gets Traced
+
+1. **avatar_response** - Main avatar generation
+2. **extract_insights** - Insight extraction from messages
+3. **search_similar_insights** - Vector similarity search
+4. **add_insight** - Adding insights to memory
+
+---
+
+## Environment Variables
+
+```bash
+# LangSmith (REQUIRED for observability)
+LANGSMITH_API_KEY=lsv2_pt_xxxx
+LANGSMITH_PROJECT=golive-ai-agents
+
+# LLM Provider
+LLM_PROVIDER=openai  # or anthropic
+
+# OpenAI
+OPENAI_API_KEY=sk-xxxx
+OPENAI_MODEL=gpt-4-turbo-preview
+
+# Anthropic
+ANTHROPIC_API_KEY=sk-ant-xxxx
+ANTHROPIC_MODEL=claude-3-opus-20240229
+
+# LLM Settings
+LLM_TEMPERATURE=0.7
+LLM_MAX_TOKENS=4096
+
+# Embeddings
+EMBEDDING_MODEL=text-embedding-3-small
+
+# Database
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/golive
+
+# Redis
+REDIS_URL=redis://localhost:6379
+```
+
+---
+
+## Before Each Commit
+
+- [ ] `pyright app/` passes (strict mode)
+- [ ] `ruff check app/` passes
+- [ ] `black --check app/` passes
+- [ ] `pytest` passes
+- [ ] All chains have `@traceable` decorator
+- [ ] LangSmith traces appear in dashboard
+- [ ] No hardcoded API keys
+- [ ] Prompt templates are in dedicated files/functions

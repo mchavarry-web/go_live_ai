@@ -1,0 +1,110 @@
+<div class="px-4 sm:px-6 lg:px-8">
+  <!-- Page Header -->
+  <div class="md:flex md:items-center md:justify-between">
+    <div class="flex-1 min-w-0">
+      <h2 class="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
+        <%= @user.name %>
+      </h2>
+    </div>
+    <div class="mt-4 flex md:mt-0 md:ml-4">
+      <%= link_to "Editar", edit_admin_user_path(@user),
+          class: "inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500" %>
+      <%= link_to "Eliminar", admin_user_path(@user),
+          data: { turbo_method: :delete, turbo_confirm: "¿Está seguro de que desea eliminar este usuario?" },
+          class: "ml-3 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500" %>
+    </div>
+  </div>
+
+  <!-- User Details -->
+  <div class="mt-8 bg-white shadow overflow-hidden sm:rounded-lg">
+    <div class="px-4 py-5 sm:px-6 flex items-center">
+      <%= render "shared/user_avatar", user: @user, size: "lg" %>
+      <div class="ml-4">
+        <h3 class="text-lg leading-6 font-medium text-gray-900">
+          Información del Usuario
+        </h3>
+        <p class="mt-1 max-w-2xl text-sm text-gray-500">
+          Detalles personales y configuración
+        </p>
+      </div>
+    </div>
+    <div class="border-t border-gray-200">
+      <dl>
+        <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+          <dt class="text-sm font-medium text-gray-500">Nombre completo</dt>
+          <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2"><%= @user.name %></dd>
+        </div>
+        <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+          <dt class="text-sm font-medium text-gray-500">Email</dt>
+          <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2"><%= @user.email %></dd>
+        </div>
+        <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+          <dt class="text-sm font-medium text-gray-500">Teléfono</dt>
+          <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+            <%= @user.phone_number.present? ? @user.phone_number : "No especificado" %>
+          </dd>
+        </div>
+        <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+          <dt class="text-sm font-medium text-gray-500">Roles</dt>
+          <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+            <% if @user.roles.any? %>
+              <div class="flex flex-wrap gap-2">
+                <% @user.roles.each do |role| %>
+                  <%
+                    badge_color = case role.name
+                    when 'administrator' then 'bg-red-100 text-red-800'
+                    when 'client' then 'bg-blue-100 text-blue-800'
+                    when 'emergency_contact' then 'bg-green-100 text-green-800'
+                    else 'bg-gray-100 text-gray-800'
+                    end
+                  %>
+                  <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium <%= badge_color %>">
+                    <%= role.name.humanize %>
+                  </span>
+                <% end %>
+              </div>
+            <% else %>
+              <span class="text-gray-500">Sin roles asignados</span>
+            <% end %>
+          </dd>
+        </div>
+        <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+          <dt class="text-sm font-medium text-gray-500">Autenticación de dos factores</dt>
+          <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+            <% if @user.two_factor_enabled %>
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                Habilitado (<%= @user.two_factor_method %>)
+              </span>
+            <% else %>
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                Deshabilitado
+              </span>
+            <% end %>
+          </dd>
+        </div>
+        <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+          <dt class="text-sm font-medium text-gray-500">Último inicio de sesión</dt>
+          <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+            <%= @user.last_sign_in_at ? l(@user.last_sign_in_at, format: :long) : "Nunca" %>
+          </dd>
+        </div>
+        <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+          <dt class="text-sm font-medium text-gray-500">Número de inicios de sesión</dt>
+          <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2"><%= @user.sign_in_count %></dd>
+        </div>
+        <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+          <dt class="text-sm font-medium text-gray-500">Creado</dt>
+          <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+            <%= l(@user.created_at, format: :long) %>
+          </dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+
+  <!-- Back Button -->
+  <div class="mt-6">
+    <%= link_to "← Volver a Usuarios", admin_users_path,
+        class: "text-sm font-medium text-orange-600 hover:text-orange-500" %>
+  </div>
+</div>

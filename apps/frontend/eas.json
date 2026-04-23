@@ -1,0 +1,81 @@
+{
+  "cli": {
+    "version": ">= 13.2.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "BASE_URL": "http://localhost:3000/api/v1/mobile",
+        "WS_URL": "ws://localhost:3000/cable",
+        "NODE_ENV": "development",
+        "API_TIMEOUT": "10000",
+        "DEBUG": "true"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "BASE_URL": "https://golive.devtechperu.net/api/v1/mobile",
+        "WS_URL": "wss://golive.devtechperu.net/cable",
+        "NODE_ENV": "staging",
+        "API_TIMEOUT": "15000",
+        "DEBUG": "true"
+      }
+    },
+    "staging": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "env": {
+        "BASE_URL": "https://golive.devtechperu.net/api/v1/mobile",
+        "WS_URL": "wss://golive.devtechperu.net/cable",
+        "NODE_ENV": "staging",
+        "API_TIMEOUT": "15000",
+        "DEBUG": "true"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "env": {
+        "BASE_URL": "https://golive.devtechperu.net/api/v1/mobile",
+        "WS_URL": "wss://golive.devtechperu.net/cable",
+        "NODE_ENV": "production",
+        "API_TIMEOUT": "20000",
+        "DEBUG": "false"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "YOUR_APPLE_ID",
+        "ascAppId": "YOUR_ASC_APP_ID"
+      },
+      "android": {
+        "track": "internal"
+      }
+    }
+  }
+}
