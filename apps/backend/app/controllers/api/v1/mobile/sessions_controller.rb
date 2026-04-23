@@ -41,7 +41,7 @@ class Api::V1::Mobile::SessionsController < Api::V1::BaseController
     payload = {
       user_id: user.id,
       email: user.email,
-      roles: user.roles.pluck(:name),
+      role: user.role,
       exp: 90.days.from_now.to_i,
       type: "access"
     }
@@ -64,7 +64,7 @@ class Api::V1::Mobile::SessionsController < Api::V1::BaseController
       first_name: user.first_name,
       last_name: user.last_name,
       phone_number: user.phone_number,
-      roles: user.roles.pluck(:name),
+      role: user.role,
       created_at: user.created_at,
       updated_at: user.updated_at
     }

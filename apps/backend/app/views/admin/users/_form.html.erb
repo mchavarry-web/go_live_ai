@@ -86,26 +86,13 @@
       </div>
     </div>
 
-    <!-- Roles -->
+    <!-- Role -->
     <div class="sm:col-span-2">
-      <label class="block text-sm font-medium text-gray-700 mb-2">Roles</label>
-      <div class="space-y-2">
-        <% @available_roles.each do |role| %>
-          <div class="flex items-center">
-            <%= check_box_tag "user[role_ids][]",
-                role.id,
-                user.role_ids.include?(role.id),
-                id: "user_role_#{role.id}",
-                class: "form-checkbox" %>
-            <%= label_tag "user_role_#{role.id}",
-                role.name.humanize,
-                class: "ml-2 text-sm text-gray-700" %>
-            <% if role.description.present? %>
-              <span class="ml-2 text-xs text-gray-500">(<%= role.description %>)</span>
-            <% end %>
-          </div>
-        <% end %>
-      </div>
+      <%= f.input :role,
+                  collection: User::ROLES,
+                  label: "Rol",
+                  include_blank: false,
+                  input_html: { class: "form-select" } %>
     </div>
 
     <!-- Password Section -->

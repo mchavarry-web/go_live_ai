@@ -45,26 +45,18 @@
           </dd>
         </div>
         <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-          <dt class="text-sm font-medium text-gray-500">Roles</dt>
+          <dt class="text-sm font-medium text-gray-500">Rol</dt>
           <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-            <% if @user.roles.any? %>
-              <div class="flex flex-wrap gap-2">
-                <% @user.roles.each do |role| %>
-                  <%
-                    badge_color = case role.name
-                    when 'administrator' then 'bg-red-100 text-red-800'
-                    when 'client' then 'bg-blue-100 text-blue-800'
-                    when 'emergency_contact' then 'bg-green-100 text-green-800'
-                    else 'bg-gray-100 text-gray-800'
-                    end
-                  %>
-                  <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium <%= badge_color %>">
-                    <%= role.name.humanize %>
-                  </span>
-                <% end %>
-              </div>
+            <% badge_color = @user.admin? ? "bg-red-100 text-red-800" : "bg-gray-100 text-gray-800" %>
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium <%= badge_color %>">
+              <%= @user.role.humanize %>
+            </span>
+            <% if @user.admin? %>
+              <%= button_to "Revocar admin", demote_admin_user_path(@user), method: :post,
+                            class: "ml-3 text-xs text-red-600 hover:text-red-800" %>
             <% else %>
-              <span class="text-gray-500">Sin roles asignados</span>
+              <%= button_to "Promover a admin", promote_admin_user_path(@user), method: :post,
+                            class: "ml-3 text-xs text-green-700 hover:text-green-900" %>
             <% end %>
           </dd>
         </div>

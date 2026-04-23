@@ -12,7 +12,7 @@ module Auth
     module_function
 
     def access_token(user)
-      encode(user_id: user.id, roles: user.roles.pluck(:name), exp: ACCESS_TTL.from_now.to_i, type: "access")
+      encode(user_id: user.id, role: user.role, exp: ACCESS_TTL.from_now.to_i, type: "access")
     end
 
     def refresh_token(user)

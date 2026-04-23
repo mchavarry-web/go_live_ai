@@ -31,6 +31,14 @@ gem "jwt", "~> 2.9"
 # Authorization
 gem "cancancan", "~> 3.5"
 
+# Social login for web admin flows. Mobile API keeps its hand-rolled
+# server-side ID-token verification (see app/services/auth/*_verifier.rb).
+gem "omniauth"
+gem "omniauth-rails_csrf_protection", "~> 1.0"
+gem "omniauth-google-oauth2"
+gem "omniauth-apple"
+gem "omniauth-facebook"
+
 # Forms
 gem "simple_form", "~> 5.3.1"
 

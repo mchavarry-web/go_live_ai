@@ -268,10 +268,29 @@ Devise.setup do |config|
   # The default HTTP method used to sign out a resource. Default is :delete.
   config.sign_out_via = :delete
 
-  # ==> OmniAuth
-  # Add a new OmniAuth provider. Check the wiki for more information on setting
-  # up on your models and hooks.
-  # config.omniauth :github, 'APP_ID', 'APP_SECRET', scope: 'user,public_repo'
+  # ==> OmniAuth — web flows (admin + marketing). Mobile uses the
+  # hand-rolled /api/v1/auth/{google,apple,facebook} ID-token verifiers.
+  #
+  # Register all three providers unconditionally so Devise's shared view
+  # helpers are always defined. When an env var is empty the provider will
+  # still 401 at OAuth time — no worse than a bad credential.
+  config.omniauth :google_oauth2,
+                  ENV.fetch("GOOGLE_OAUTH_CLIENT_ID", ""),
+                  ENV.fetch("GOOGLE_OAUTH_CLIENT_SECRET", ""),
+                  scope: "email profile"
+
+  config.omniauth :apple,
+                  ENV.fetch("APPLE_OAUTH_SERVICE_ID", ""),
+                  "",
+                  scope: "email name",
+                  team_id: ENV.fetch("APPLE_OAUTH_TEAM_ID", ""),
+                  key_id:  ENV.fetch("APPLE_OAUTH_KEY_ID", ""),
+                  pem:     ENV.fetch("APPLE_OAUTH_PRIVATE_KEY", "")
+
+  config.omniauth :facebook,
+                  ENV.fetch("FACEBOOK_APP_ID", ""),
+                  ENV.fetch("FACEBOOK_APP_SECRET", ""),
+                  scope: "email", info_fields: "email,first_name,last_name"
 
   # ==> Warden configuration
   # If you want to use other strategies, that are not supported by Devise, or

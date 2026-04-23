@@ -110,7 +110,7 @@ class Api::V1::AuthController < Api::V1::BaseController
       formality_level: user.formality_level,
       onboarded:  user.onboarded?,
       provider:   user.provider,
-      roles:      user.roles.pluck(:name),
+      role:       user.role,
       knowledge_level: user.avatar&.knowledge_level || 1,
       created_at: user.created_at,
       updated_at: user.updated_at

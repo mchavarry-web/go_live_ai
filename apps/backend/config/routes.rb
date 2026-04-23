@@ -1,7 +1,8 @@
 Rails.application.routes.draw do
   # ── Web (Devise cookie session — admin area + marketing pages) ──────
   devise_for :users, controllers: {
-    sessions: "users/sessions"
+    sessions:            "users/sessions",
+    omniauth_callbacks:  "users/omniauth_callbacks"
   }
 
   # ── Mobile + Web API (hand-rolled JWT, see Api::V1::BaseController) ──
@@ -65,8 +66,8 @@ Rails.application.routes.draw do
 
     resources :users do
       member do
-        post   :assign_role
-        delete :remove_role
+        post :promote
+        post :demote
       end
     end
 

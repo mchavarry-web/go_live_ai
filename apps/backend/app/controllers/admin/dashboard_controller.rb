@@ -1,7 +1,7 @@
 class Admin::DashboardController < Admin::AdminController
   def index
     @users_count         = User.count
-    @admins_count        = User.joins(:roles).where(roles: { name: "administrator" }).distinct.count
+    @admins_count        = User.where(role: "administrator").count
     @onboarded_count     = User.where.not(onboarding_completed_at: nil).count
 
     @conversations_count = Conversation.count
