@@ -1,16 +1,32 @@
 Rails.application.routes.draw do
-  # Devise authentication
+  # ── Web (Devise cookie session — admin area + marketing pages) ──────
   devise_for :users, controllers: {
-    sessions: 'users/sessions'
+    sessions: "users/sessions"
   }
 
-  # Mobile API routes
+  # ── Mobile + Web API (hand-rolled JWT, see Api::V1::BaseController) ──
   namespace :api do
     namespace :v1 do
+      # Auth — every flow terminates in { access_token, refresh_token, user }
+      post   "auth/sign_in",  to: "auth#sign_in"
+      post   "auth/sign_up",  to: "auth#sign_up"
+      post   "auth/google",   to: "auth#google"
+      post   "auth/apple",    to: "auth#apple"
+      post   "auth/facebook", to: "auth#facebook"
+      post   "auth/refresh",  to: "auth#refresh"
+      get    "auth/me",       to: "auth#me"
+      delete "auth/sign_out", to: "auth#sign_out"
+
+      # Onboarding
+      get  "onboarding/status",   to: "onboarding#status"
+      post "onboarding/complete", to: "onboarding#complete"
+      post "onboarding/reset",    to: "onboarding#reset"
+
+      # Legacy mobile sessions (kept until Expo is fully switched to /auth/*)
       namespace :mobile do
-        post 'login', to: 'sessions#create'
-        delete 'logout', to: 'sessions#destroy'
-        get 'user', to: 'sessions#show'
+        post   "login",  to: "sessions#create"
+        delete "logout", to: "sessions#destroy"
+        get    "user",   to: "sessions#show"
       end
     end
   end

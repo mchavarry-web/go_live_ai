@@ -7,11 +7,10 @@ class Ability
     user ||= User.new # guest user (not logged in)
 
     if user.admin?
-      # Administrators can manage everything
       can :manage, :all
     else
-      # Basic read access for authenticated users
-      can :read, User, id: user.id
+      can %i[read update], User, id: user.id
+      can %i[read update], Avatar, user_id: user.id
     end
   end
 end

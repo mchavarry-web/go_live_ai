@@ -138,6 +138,26 @@ yarn lint && yarn test
 ## Phase status
 
 - Phase 0 (scaffold) — **✔ complete**. Monorepo boots; FastAPI guard verified; Rails + pgvector DB wired.
-- Phase 1 (auth + data model) — **next**. Add go-live-specific `User` columns (country, timezone, proactive tracking, formality_level), `Avatar` model, onboarding endpoints, and server-side social-login verification for Google/Apple/Facebook.
+- Phase 1 (auth + data model) — **✔ complete**. User schema extended with country/timezone/lat/lng/last_proactive_skill/last_proactive_at/formality_level/onboarding_completed_at/provider/provider_uid; `Avatar` model (1:1 with User, knowledge_level 1-10 + appearance/behavior jsonb); `Api::V1::AuthController` covers email sign_in/sign_up, Google/Apple/Facebook (server-side provider-token verification — Google/Apple via JWKS, Facebook via Graph API), refresh, me, sign_out; `Api::V1::OnboardingController` (status/complete/reset); CanCanCan `Ability` updated for Avatar; `user` role added to seeds.
+- Phase 2 (chat + AI integration) — **next**. `Conversation`/`Message` models, `ChatChannel` + `ChatGenerationJob` (Sidekiq) → `AiAgentsClient.stream_chat` → ActionCable broadcasts.
 
 See `../PORT_PLAN.md` §10 for the full phase roadmap.
+
+## Auth quick reference
+
+Mobile JWT flow, all under `/api/v1/auth/`:
+
+| Route | Payload | Response |
+|---|---|---|
+| `POST /auth/sign_up` | `{email, password, first_name?, last_name?}` | `{access_token, refresh_token, expires_at, user}` |
+| `POST /auth/sign_in` | `{email, password}` | same |
+| `POST /auth/google` | `{id_token}` (ID token from `@react-native-google-signin`) | same |
+| `POST /auth/apple` | `{id_token}` (from `expo-apple-authentication`) | same |
+| `POST /auth/facebook` | `{access_token}` (from `react-native-fbsdk-next`) | same |
+| `POST /auth/refresh` | `{refresh_token}` | `{access_token, expires_at}` |
+| `GET  /auth/me` | — (header: `Authorization: Bearer <access_token>`) | `{user}` |
+| `DELETE /auth/sign_out` | — | `{message}` |
+
+Provider verification is in `app/services/auth/`: `google_verifier.rb` + `apple_verifier.rb` share `jwks_verifier.rb` (JWKS fetch + RS256 decode + 1-retry on key rotation), `facebook_verifier.rb` hits `graph.facebook.com/me`. All three return a normalised claim hash to `Auth::SocialSignIn` which upserts the `User` by `(provider, provider_uid)` with an email fallback.
+
+JWT issuance is centralised in `Auth::JwtIssuer` (HS256 + `Rails.application.secret_key_base`; access 7d, refresh 30d). Every `User.create!` triggers `ensure_default_role_and_avatar` which adds the `:user` role and creates the matching `Avatar` — no empty users.

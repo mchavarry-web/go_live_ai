@@ -6,23 +6,26 @@ class User < ApplicationRecord
   devise :database_authenticatable, :registerable,
          :recoverable, :rememberable, :validatable, :trackable
 
-  # Multi-role associations
+  # ── Associations ──────────────────────────────────────────────────────
   has_many :user_roles, dependent: :destroy
   has_many :roles, through: :user_roles
+  has_one  :avatar,  dependent: :destroy
+
+  after_create :ensure_default_role_and_avatar
+
+  # ── Enums ─────────────────────────────────────────────────────────────
+  FORMALITY_LEVELS = %w[formal neutral informal].freeze
+  PROVIDERS        = %w[email google apple facebook].freeze
 
   validates :phone_number, uniqueness: true, allow_blank: true
+  validates :formality_level, inclusion: { in: FORMALITY_LEVELS }, allow_nil: true
+  validates :provider,        inclusion: { in: PROVIDERS },        allow_nil: true
+  validates :country, length: { is: 2 }, allow_blank: true
+  validates :provider_uid, uniqueness: { scope: :provider }, allow_blank: true
 
-  # Helper methods for roles
+  # ── Role helpers ─────────────────────────────────────────────────────
   def admin?
     has_role?(:administrator)
-  end
-
-  def client?
-    has_role?(:client)
-  end
-
-  def emergency_contact?
-    has_role?(:emergency_contact)
   end
 
   def has_role?(role_name)
@@ -55,12 +58,20 @@ class User < ApplicationRecord
     end
   end
 
-  # Avatar helper method
-  def avatar_url(size = :thumb)
-    if user_image.present?
-      user_image_url(size)
-    else
-      nil # Return nil to allow fallback to initials
-    end
+  # User profile image URL (not to be confused with the AI `avatar` association).
+  def user_image_display_url(size = :thumb)
+    user_image.present? ? user_image_url(size) : nil
+  end
+
+  # ── Onboarding ────────────────────────────────────────────────────────
+  def onboarded?
+    onboarding_completed_at.present?
+  end
+
+  private
+
+  def ensure_default_role_and_avatar
+    add_role(:user) if roles.empty?
+    Avatar.create!(user: self) unless avatar
   end
 end
