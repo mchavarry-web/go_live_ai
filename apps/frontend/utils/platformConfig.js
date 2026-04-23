@@ -1,41 +1,34 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
-const getBaseUrl = () => {
-  const config = Constants.expoConfig?.extra || {};
-  const baseUrl = config.BASE_URL;
+// Single source of truth for Rails API + ActionCable URLs.
+// Android emulator: localhost → 10.0.2.2 (host-loopback).
+// Web (Expo web target): localhost just works.
+const config = Constants.expoConfig?.extra || {};
 
-  if (!baseUrl) {
-    console.warn('BASE_URL not found in config, using fallback');
-    return 'http://localhost:3000/api/v1/mobile'; // development fallback
+const adjustForPlatform = (url, fallback) => {
+  const value = url || fallback;
+  if (Platform.OS === 'android' && value.includes('localhost')) {
+    return value.replace('localhost', '10.0.2.2');
   }
-
-  // Only replace localhost for Android emulator in development
-  if (Platform.OS === 'android' && baseUrl.includes('localhost')) {
-    return baseUrl.replace('localhost', '10.0.2.2');
-  }
-
-  return baseUrl;
+  return value;
 };
 
-const getWsUrl = () => {
-  const config = Constants.expoConfig?.extra || {};
-  const wsUrl = config.WS_URL;
+const getApiUrl = () =>
+  adjustForPlatform(config.API_URL, 'http://localhost:3000/api/v1');
 
-  if (!wsUrl) {
-    console.warn('WS_URL not found in config, using fallback');
-    return 'ws://localhost:3000/cable'; // development fallback
-  }
+// Back-compat alias for existing callers that imported getBaseUrl.
+const getBaseUrl = getApiUrl;
 
-  // Only replace localhost for Android emulator in development
-  if (Platform.OS === 'android' && wsUrl.includes('localhost')) {
-    return wsUrl.replace('localhost', '10.0.2.2');
-  }
+const getCableUrl = () =>
+  adjustForPlatform(config.CABLE_URL, 'ws://localhost:3000/cable');
 
-  return wsUrl;
-};
+// Back-compat alias.
+const getWsUrl = getCableUrl;
 
 export default {
+  getApiUrl,
   getBaseUrl,
+  getCableUrl,
   getWsUrl,
 };

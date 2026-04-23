@@ -10,7 +10,9 @@ export default {
     slug: 'go-live',
     version: '1.0.0',
     orientation: 'portrait',
-    userInterfaceStyle: 'light',
+    userInterfaceStyle: 'dark',
+    // First-class platform support: iOS, Android, and web.
+    platforms: ['ios', 'android', 'web'],
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.golive.app',
@@ -22,16 +24,21 @@ export default {
     },
     web: {
       bundler: 'metro',
+      // Static (SPA) output — Rails serves it as public/web/ on deploy if
+      // we ever want a unified host; otherwise ship as a separate Expo web build.
+      output: 'static',
+      favicon: './assets/favicon.png',
     },
     extra: {
-      BASE_URL: process.env.BASE_URL || 'http://localhost:3000/api/v1/mobile',
-      WS_URL: process.env.WS_URL || 'ws://localhost:3000/cable',
+      // Rails API endpoints (single source of truth — no more /mobile namespace).
+      API_URL: process.env.API_URL || 'http://localhost:3000/api/v1',
+      CABLE_URL: process.env.CABLE_URL || 'ws://localhost:3000/cable',
       NODE_ENV: process.env.NODE_ENV || 'development',
       API_TIMEOUT: process.env.API_TIMEOUT || '15000',
       DEBUG: process.env.DEBUG || 'true',
       eas: {
-        projectId: "3c3384ce-957f-481a-a63d-a56e68e76dc1"
-      }
+        projectId: '3c3384ce-957f-481a-a63d-a56e68e76dc1',
+      },
     },
   },
 };
