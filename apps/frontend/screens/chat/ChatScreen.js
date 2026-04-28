@@ -100,10 +100,12 @@ export default function ChatScreen({ route, navigation }) {
   const [lastFailedMessage, setLastFailedMessage] = useState(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [creatingConv, setCreatingConv] = useState(false);
-
   const channelRef = useRef(null);
   const listRef = useRef(null);
+  // Tracked as a ref (not state) so flipping it doesn't re-run the bootstrap
+  // effect — that would cancel the in-flight listConversations / create call
+  // via the cleanup function and silently leave `conversationId` null.
+  const creatingConvRef = useRef(false);
 
   const avatarName = user?.avatar?.name || 'tu avatar';
 
@@ -112,33 +114,33 @@ export default function ChatScreen({ route, navigation }) {
   // only create a new one as a fallback. This mirrors gln-mobile-app's
   // useInactivitySession behaviour without the absence-time heuristic.
   useEffect(() => {
+    if (conversationId || creatingConvRef.current) return undefined;
     let cancelled = false;
-    if (conversationId || creatingConv) return undefined;
+    creatingConvRef.current = true;
     (async () => {
-      setCreatingConv(true);
       const list = await apiService.listConversations();
-      if (cancelled) return;
+      if (cancelled) { creatingConvRef.current = false; return; }
       const items = list.success ? (list.data?.conversations || list.data || []) : [];
       if (items.length > 0) {
         // The list is sorted by last_active_at DESC server-side
         setConversationId(items[0].id);
-        setCreatingConv(false);
+        creatingConvRef.current = false;
         return;
       }
       const { success, data } = await apiService.createConversation();
-      if (cancelled) return;
+      if (cancelled) { creatingConvRef.current = false; return; }
       if (success) {
         const conv = data.conversation || data;
         setConversationId(conv.id);
       } else {
         setError('No se pudo iniciar la conversación.');
       }
-      setCreatingConv(false);
+      creatingConvRef.current = false;
     })();
     return () => {
       cancelled = true;
     };
-  }, [conversationId, creatingConv]);
+  }, [conversationId]);
 
   // Keep conversationId in sync with route params
   useEffect(() => {
@@ -231,7 +233,10 @@ export default function ChatScreen({ route, navigation }) {
 
   const handleSend = useCallback(
     async (content) => {
-      if (!conversationId) return;
+      if (!conversationId) {
+        console.warn('[chat] handleSend called with no conversationId — message swallowed');
+        return;
+      }
       setError('');
       setLastFailedMessage(null);
       setIsSending(true);

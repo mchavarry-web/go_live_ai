@@ -113,11 +113,12 @@ namespace :ai_agents do
   task :migrate do
     on roles(:ai_agents) do
       release_path = fetch(:ai_agents_release_path)
-      within release_path do
-        # `.env` is symlinked, so DATABASE_URL resolves correctly when alembic
-        # boots through env.py (which loads dotenv). No need to re-export here.
-        execute "#{release_path}/.venv/bin/alembic upgrade head"
-      end
+      # `within` only affects symbol-form `execute` calls in sshkit; for raw
+      # command strings we have to chain `cd` ourselves so alembic finds the
+      # `alembic.ini` sitting at the release root.
+      # `.env` is symlinked, so DATABASE_URL resolves correctly when alembic
+      # boots through env.py (which loads dotenv). No need to re-export here.
+      execute "cd #{release_path} && #{release_path}/.venv/bin/alembic upgrade head"
     end
   end
 
