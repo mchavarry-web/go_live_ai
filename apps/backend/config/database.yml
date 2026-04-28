@@ -81,5 +81,5 @@ test:
 production:
   <<: *default
   database: go_live_production
-  username: go_live
-  password: <%= ENV["PANIC_BUTTON_DATABASE_PASSWORD"] %>
+  username: postgres
+  password: <%= ENV["GOLIVE_DATABASE_PASSWORD"] %>

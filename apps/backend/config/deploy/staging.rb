@@ -21,11 +21,11 @@
 # role :web, %w{user1@primary.com user2@additional.com}, other_property: :other_value
 # role :db,  %w{deploy@example.com}
 
-server "misos.devtechperu.net",
+server "golive.devtechperu.net",
   user: "deploy",
   roles: %w[app db web ai_agents],
   ssh_options: {
-    proxy: Net::SSH::Proxy::Command.new("cloudflared access ssh --hostname ssh-misos.devtechperu.net"),
+    proxy: Net::SSH::Proxy::Command.new("cloudflared access ssh --hostname ssh-golive.devtechperu.net"),
     forward_agent: true,
     auth_methods: %w[publickey]
   }

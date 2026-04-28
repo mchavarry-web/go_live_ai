@@ -1,7 +1,7 @@
 # config valid for current version and patch releases of Capistrano
 lock "~> 3.19.2"
 
-set :application, "go_live-backend"
+set :application, "golive-backend"
 set :repo_url, "git@github.com:augustosamame/go_live.git"
 set :repo_tree, "apps/backend"
 
