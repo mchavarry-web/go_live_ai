@@ -117,12 +117,53 @@ class ApiService {
     return this.request('/auth/sign_out', { method: 'DELETE' });
   }
 
+  // ── Avatar (appearance + behavior) ───────────────────────────────
+  async getAvatar() {
+    return this.request('/avatar');
+  }
+
+  async updateAvatar({ name, appearance, behavior } = {}) {
+    const body = {};
+    if (name !== undefined) body.name = name;
+    if (appearance !== undefined) body.appearance = appearance;
+    if (behavior !== undefined) body.behavior = behavior;
+    return this.request('/avatar', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async listInsights() {
+    return this.request('/avatar/insights');
+  }
+
+  async deleteInsight(id) {
+    return this.request(`/avatar/insights/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteAllInsights() {
+    return this.request('/avatar/insights', { method: 'DELETE' });
+  }
+
+  async teachAvatar(message) {
+    return this.request('/avatar/teach', {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+  }
+
+  async disconnectSocial(provider) {
+    return this.request(`/${provider}`, { method: 'DELETE' });
+  }
+
   // ── Onboarding ───────────────────────────────────────────────────
   async getOnboardingStatus() {
     return this.request('/onboarding/status');
   }
 
-  async completeOnboarding({ country, timezone, formalityLevel }) {
+  async completeOnboarding({ country, timezone, formalityLevel } = {}) {
     return this.request('/onboarding/complete', {
       method: 'POST',
       body: JSON.stringify({
@@ -131,6 +172,10 @@ class ApiService {
         formality_level: formalityLevel,
       }),
     });
+  }
+
+  async resetOnboarding() {
+    return this.request('/onboarding/reset', { method: 'POST' });
   }
 
   // ── Chat ─────────────────────────────────────────────────────────

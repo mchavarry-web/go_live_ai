@@ -83,7 +83,7 @@ def _build_insights_section(insights: list[str] | None) -> str:
         A formatted string block for insights, or a fallback message.
     """
     if not insights:
-        return "Aún no conoces mucho sobre esta persona. Hacé preguntas para conocerla mejor."
+        return "Aún no conoces mucho sobre esta persona. Haz preguntas para conocerla mejor."
 
     lines = []
     for insight in insights:
@@ -140,13 +140,13 @@ def _build_language_style_section(
 
     if effective_formality < 0.4:
         slang_list = dialect["slang_casual"]
-        intensity_label = "Usá jerga libremente, el usuario habla muy informal."
+        intensity_label = "Usa jerga libremente, el usuario habla muy informal."
     elif effective_formality < 0.7:
         slang_list = dialect["slang_moderate"]
-        intensity_label = "Usá jerga moderada, el usuario es semi-informal."
+        intensity_label = "Usa jerga moderada, el usuario es semi-informal."
     else:
         slang_list = []
-        intensity_label = "El usuario habla formal. Evitá jerga pesada, mantené un tono respetuoso pero cercano."
+        intensity_label = "El usuario habla formal. Evita jerga pesada, mantén un tono respetuoso pero cercano."
 
     lines = [
         f"ADAPTACIÓN LINGÜÍSTICA — dialecto {dialect['name']}:",
@@ -156,19 +156,19 @@ def _build_language_style_section(
     ]
 
     if slang_list:
-        lines.append(f"- Expresiones que podés usar: {', '.join(slang_list)}")
+        lines.append(f"- Expresiones que puedes usar: {', '.join(slang_list)}")
 
     if dialect["fillers"]:
         lines.append(f"- Muletillas naturales: {', '.join(dialect['fillers'])}")
 
     if custom_expressions:
         lines.append(
-            f"- Expresiones propias del usuario (usá estas también): {', '.join(custom_expressions)}"
+            f"- Expresiones propias del usuario (usa estas también): {', '.join(custom_expressions)}"
         )
 
     if dialect["avoid"]:
         lines.append(
-            f"- EVITÁ expresiones de otros dialectos: {', '.join(dialect['avoid'])}"
+            f"- EVITA expresiones de otros dialectos: {', '.join(dialect['avoid'])}"
         )
 
     return "\n".join(lines)

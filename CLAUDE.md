@@ -32,7 +32,7 @@ Expo (ios/android/web) ──HTTPS + ActionCable──► Rails ──HTTP──
 - **Only Rails is publicly exposed.** FastAPI guards `/internal/*` with `X-Internal-Token`.
 - **Real-time chat uses ActionCable only.** No SSE, no `ActionController::Live`. Expo POSTs via REST, receives streaming chunks via Cable.
 - **Auth:** Devise (cookie web) + hand-rolled JWT (API) — see `apps/backend/app/controllers/api/v1/base_controller.rb`. **No devise-jwt, no omniauth.** Social login (Google/Apple/Facebook) done via client-side provider SDK + server-side token verification.
-- **Queue/Cable/Cache:** Sidekiq + Redis. ActionCable adapter is `async` in dev, `redis` in prod. **No Solid Queue / Solid Cable / Solid Cache.**
+- **Queue/Cable/Cache:** Sidekiq + Redis. ActionCable adapter is **`redis` in every environment** (was `async` in dev — that broke Sidekiq → frontend chat broadcasts because `async` is per-process). **No Solid Queue / Solid Cable / Solid Cache.**
 - **Ingestion:** flat per-platform controllers (`InstagramController`, `SpotifyController`, etc.) — no `Ingestion::` namespace.
 - **Two PostgreSQL DBs on the same local server** (different DB names): `go_live_backend_development` for Rails, `go_live_ai_agents_development` for FastAPI. Rails never uses pgvector; the AI DB has the `vector` extension enabled. Production follows the same shape; Postgres runs locally on the box, not containerized.
 
@@ -77,12 +77,32 @@ curl -H "X-Internal-Token: $TOKEN" \
 ```
 Requires: Homebrew Postgres running (the running server can be 14+; pgvector available), Redis running, RVM with Ruby 3.3.4 and the `go-live` gemset, Homebrew Python 3.11+, Node 20. No Docker in dev or prod.
 
-### Daily dev (one command starts the stack)
+### Daily dev (two terminals)
 ```bash
-# From the monorepo root — uses /Procfile.dev
-foreman start -f Procfile.dev
-# ↳ rails :3000, jsbundle, cssbundle, sidekiq, ai-agents :8001, expo :8081
+# Terminal 1 — backend stack
+bin/dev
+# ↳ frees orphan ports (3000/8001/8081), removes stale Puma pid, then runs
+#   foreman start -f Procfile.dev
+#   processes: rails :3000, jsbundle, cssbundle, sidekiq, ai-agents :8001
+
+# Terminal 2 — Expo (run manually so the keyboard menu works)
+cd apps/frontend
+yarn start
+# ↳ Metro on :8081, then press i / a / w for iOS / Android / web,
+#   r to reload, q to quit
 ```
+
+Why two terminals: foreman captures stdin, which kills Expo's interactive
+keyboard menu (`q`/`r`/`i`/`a`/`w`). Running Expo in its own terminal
+keeps the menu functional.
+
+Why `bin/dev` exists: foreman's SIGTERM is sometimes ignored by uvicorn's
+reloader children and Puma, leaving them squatting on `:3000` / `:8001`
+so the next foreman cycle fails to bind. Rails also leaves
+`tmp/pids/server.pid` behind on hard exits. `bin/dev` cleans those up
+surgically (kills only processes bound to our exact ports) before
+booting. Note that `--reload` was dropped from the ai-agents Procfile
+line — restart foreman manually after Python changes.
 
 There are **two Procfile.dev** files. Both include Sidekiq:
 - `/Procfile.dev` (monorepo root) — full stack (6 processes). Use `foreman start -f Procfile.dev` here.

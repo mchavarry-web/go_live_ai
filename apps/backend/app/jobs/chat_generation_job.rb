@@ -21,12 +21,19 @@ class ChatGenerationJob < ApplicationJob
 
     payload = build_payload(conversation, user_message, user)
     accumulated = +""
+    chunk_count = 0
 
     AiAgentsClient.new.stream_chat(payload) do |chunk|
       next if chunk.blank?
+      chunk_count += 1
       accumulated << chunk
       ActionCable.server.broadcast(stream_name, { type: "delta", content: chunk })
     end
+
+    Rails.logger.info(
+      "ChatGenerationJob: conversation=#{conversation.id} chunks=#{chunk_count} " \
+      "accumulated=#{accumulated.length}b"
+    )
 
     if accumulated.strip.empty?
       # FastAPI returned no text (e.g. missing LLM key, upstream error).

@@ -16,6 +16,11 @@ dependencies = [
     "langchain-core>=0.1.0",
     "langchain-community>=0.0.10",
 
+    # DuckDuckGo (used by langchain-community's DuckDuckGoSearchAPIWrapper).
+    # langchain-community uses an *implicit* runtime import of `ddgs`; without
+    # it the web-search tool fails to initialise even though chains still work.
+    "ddgs>=9.0.0",
+
     # LangChain LLM Providers
     "langchain-openai>=0.0.5",
     "langchain-anthropic>=0.1.1",

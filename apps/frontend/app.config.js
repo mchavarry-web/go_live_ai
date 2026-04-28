@@ -6,7 +6,7 @@ if (process.env.EAS_BUILD !== 'true') {
 
 export default {
   expo: {
-    name: 'GoLive',
+    name: 'Go Life',
     slug: 'go-live',
     version: '1.0.0',
     orientation: 'portrait',
@@ -15,18 +15,19 @@ export default {
     platforms: ['ios', 'android', 'web'],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.golive.app',
+      bundleIdentifier: 'com.devtechperu.golive',
     },
     android: {
-      package: 'com.golive.app',
+      package: 'com.devtechperu.golive',
       edgeToEdgeEnabled: true,
       softwareKeyboardLayoutMode: 'resize',
     },
     web: {
       bundler: 'metro',
-      // Static (SPA) output — Rails serves it as public/web/ on deploy if
-      // we ever want a unified host; otherwise ship as a separate Expo web build.
-      output: 'static',
+      // SPA output — this project uses React Navigation, not expo-router.
+      // 'static' / 'server' would require expo-router; 'single' ships a
+      // classic single-page bundle that Rails (or any static host) can serve.
+      output: 'single',
       favicon: './assets/favicon.png',
     },
     extra: {
@@ -41,7 +42,7 @@ export default {
       GOOGLE_IOS_CLIENT_ID: process.env.GOOGLE_IOS_CLIENT_ID || '',
       FACEBOOK_APP_ID: process.env.FACEBOOK_APP_ID || '',
       eas: {
-        projectId: '3c3384ce-957f-481a-a63d-a56e68e76dc1',
+        projectId: '61396ed0-1dde-4553-9f30-d838dd68c28a',
       },
     },
   },

@@ -1,44 +1,51 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+// 1:1 port of gln-mobile-app/src/screens/home/HomeScreen.tsx.
+// Placeholder for the "Inicio" tab — a future "social feed where avatars
+// interact with each other". The original ships this as a glow + icon +
+// "Próximamente" + subtitle + accent divider + hint copy.
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '../contexts/AuthContext';
-import Header from '../components/Header';
-import CustomDrawer from '../components/CustomDrawer';
-import DrawerContent from '../components/DrawerContent';
+import { Ionicons } from '@expo/vector-icons';
+
+import Text from '../components/ui/Text';
+import { colors, spacing } from '../theme';
 
 export default function HomeScreen() {
-  const { user } = useAuth();
-  const [drawerVisible, setDrawerVisible] = useState(false);
-
-  const openDrawer = () => setDrawerVisible(true);
-  const closeDrawer = () => setDrawerVisible(false);
-
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Header onMenuPress={openDrawer} title="Inicio" />
       <View style={styles.container}>
-      <Text style={styles.title}>Bienvenido a GoLive</Text>
-      <Text style={styles.subtitle}>¡Hola, {user?.first_name || user?.email}!</Text>
+        <View style={styles.iconContainer}>
+          <View style={styles.iconGlow} />
+          <View style={styles.iconCircle}>
+            <Ionicons name="people-circle" size={64} color={colors.primary} />
+          </View>
+        </View>
 
-      <View style={styles.infoContainer}>
-        <Text style={styles.label}>Email:</Text>
-        <Text style={styles.value}>{user?.email}</Text>
+        <Text variant="heading" align="center" color={colors.textPrimary} style={styles.title}>
+          Próximamente
+        </Text>
 
-        <Text style={styles.label}>Nombre:</Text>
-        <Text style={styles.value}>{user?.first_name} {user?.last_name}</Text>
+        <Text
+          variant="body"
+          align="center"
+          color={colors.textSecondary}
+          style={styles.subtitle}
+        >
+          Red social para que otros avatares interactúen
+        </Text>
 
-        {user?.roles && user.roles.length > 0 && (
-          <>
-            <Text style={styles.label}>Roles:</Text>
-            <Text style={styles.value}>{user.roles.join(', ')}</Text>
-          </>
-        )}
+        <View style={styles.divider} />
+
+        <Text
+          variant="caption"
+          align="center"
+          color={colors.textTertiary}
+          style={styles.hint}
+        >
+          Estamos trabajando en algo increíble. Pronto vas a poder conectar tu
+          avatar con los de otras personas y crear interacciones únicas.
+        </Text>
       </View>
-      </View>
-
-      <CustomDrawer visible={drawerVisible} onClose={closeDrawer}>
-        <DrawerContent onClose={closeDrawer} />
-      </CustomDrawer>
     </SafeAreaView>
   );
 }
@@ -46,50 +53,54 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: 'white',
+    backgroundColor: colors.background,
   },
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-    padding: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  iconContainer: {
+    position: 'relative',
+    marginBottom: spacing.lg,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 10,
-    color: '#E65F00',
+  iconGlow: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: colors.primary,
+    opacity: 0.08,
   },
+  iconCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: colors.elevated,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: { marginBottom: spacing.sm },
   subtitle: {
-    fontSize: 18,
-    textAlign: 'center',
-    marginBottom: 30,
-    color: '#666',
+    lineHeight: 24,
+    maxWidth: 280,
+    marginBottom: spacing.lg,
   },
-  infoContainer: {
-    backgroundColor: 'white',
-    borderRadius: 10,
-    padding: 20,
-    marginBottom: 30,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+  divider: {
+    width: 40,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: colors.primary,
+    opacity: 0.4,
+    marginBottom: spacing.lg,
   },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-    marginTop: 10,
-  },
-  value: {
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 5,
+  hint: {
+    lineHeight: 18,
+    maxWidth: 300,
   },
 });

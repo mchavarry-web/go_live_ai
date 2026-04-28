@@ -16,18 +16,23 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import DbSessionDep, LLMDep, SettingsDep
+from app.chains.facebook_content_chain import FacebookContentChain
+from app.chains.facebook_social_chain import FacebookSocialChain
 from app.chains.insight_chain import InsightExtractionChain
 from app.chains.instagram_content_chain import InstagramContentChain
 from app.chains.instagram_interest_chain import InstagramInterestChain
 from app.chains.instagram_social_chain import InstagramSocialGraphChain
 from app.chains.social_insight_chain import SocialMediaInsightChain
+from app.chains.spotify_taste_chain import SpotifyTasteChain
+from app.chains.twitter_content_chain import TwitterContentChain
+from app.chains.twitter_interest_chain import TwitterInterestChain
 from app.llm.providers import get_embeddings
 from app.models.schemas import (
+    Insight,
     InsightExtractRequest,
     InstagramExtractRequest,
     SemanticSearchRequest,
     SocialExtractRequest,
-    Insight,
 )
 from app.services.memory_service import MemoryService
 
@@ -130,9 +135,11 @@ async def extract_insights(
     "/extract-social",
     summary="Extract insights from social media data",
     description=(
-        "Analyze a user's social media footprint (profile + posts) using "
-        "the SocialMediaInsightChain. Designed for batch analysis of tweets, "
-        "posts, etc. Stores insights with the platform as source."
+        "Analyze a user's social media footprint and store the resulting "
+        "insights tagged with the platform as source. Dispatches to a "
+        "platform-specific chain when known: Facebook (content+social), "
+        "Twitter (content+interest), Spotify (taste). Falls back to the "
+        "generic SocialMediaInsightChain for any other platform."
     ),
 )
 async def extract_social_insights(
@@ -141,10 +148,20 @@ async def extract_social_insights(
     llm: LLMDep,
     session: DbSessionDep,
 ) -> dict[str, object]:
-    """Extract insights from social media data using the specialized chain.
+    """Extract insights from social media data, dispatched per-platform.
+
+    Routing:
+      - facebook → FacebookContentChain + FacebookSocialChain (parallel)
+      - twitter  → TwitterContentChain + TwitterInterestChain (parallel)
+      - spotify  → SpotifyTasteChain
+      - other    → generic SocialMediaInsightChain (legacy posts/bio shape)
+
+    The per-platform chains read `request.data` (raw provider payload as
+    stashed on Rails' SocialConnection.metadata.raw_data). The generic
+    chain reads `request.posts` / `request.bio` / `request.member_since`.
 
     Args:
-        request: The social extraction request with platform, bio, and posts.
+        request: The social extraction request.
         settings: Application settings (injected).
         llm: LangChain LLM instance (injected).
         session: Async database session (injected).
@@ -155,41 +172,27 @@ async def extract_social_insights(
     Raises:
         HTTPException: If extraction fails.
     """
+    platform = (request.platform or "").lower()
     try:
-        chain = SocialMediaInsightChain(llm=llm)
+        if platform == "facebook":
+            insight_dicts, summary, breakdown = await _extract_facebook(llm, request.data)
+        elif platform == "twitter":
+            insight_dicts, summary, breakdown = await _extract_twitter(llm, request.data)
+        elif platform == "spotify":
+            insight_dicts, summary, breakdown = await _extract_spotify(llm, request.data)
+        else:
+            insight_dicts, summary, breakdown = await _extract_generic(llm, request)
 
-        posts_data = [
-            {
-                "text": post.text,
-                "is_repost": post.is_repost,
-                "date": post.date,
-                "media_types": post.media_types,
+        if not insight_dicts:
+            return {
+                "insights": [],
+                "stored": 0,
+                "summary": summary,
+                **({"breakdown": breakdown} if breakdown else {}),
             }
-            for post in request.posts
-        ]
-
-        result = await chain.extract(
-            platform=request.platform,
-            username=request.username,
-            bio=request.bio,
-            member_since=request.member_since,
-            posts=posts_data,
-        )
-
-        if not result.insights:
-            return {"insights": [], "stored": 0, "summary": result.summary}
 
         embeddings = get_embeddings(settings)
         memory_service = MemoryService(session=session, embeddings=embeddings)
-
-        insight_dicts = [
-            {
-                "category": ins.category,
-                "content": ins.content,
-                "confidence": ins.confidence,
-            }
-            for ins in result.insights
-        ]
 
         stored = await memory_service.store_insights(
             user_id=request.user_id,
@@ -213,7 +216,9 @@ async def extract_social_insights(
         return {
             "insights": [ins.model_dump() for ins in stored_insights],
             "stored": len(stored),
-            "summary": result.summary,
+            "summary": summary,
+            "insights_count": len(stored),
+            **({"breakdown": breakdown} if breakdown else {}),
         }
 
     except Exception as exc:
@@ -226,6 +231,139 @@ async def extract_social_insights(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Social insight extraction failed. Please try again.",
         ) from exc
+
+
+# ── Per-platform extractors ────────────────────────────────────────────
+# Each returns (insight_dicts, summary, breakdown_or_none). `insight_dicts`
+# is a list shaped like {category, content, confidence} ready for
+# MemoryService.store_insights.
+
+
+async def _extract_facebook(
+    llm: object, data: dict[str, object]
+) -> tuple[list[dict[str, object]], str, dict[str, int] | None]:
+    content_chain = FacebookContentChain(llm=llm)
+    social_chain = FacebookSocialChain(llm=llm)
+
+    content_result, social_result = await asyncio.gather(
+        content_chain.extract(payload=data),
+        social_chain.extract(payload=data),
+    )
+
+    insight_dicts: list[dict[str, object]] = [
+        {
+            "category": ins.category,
+            "content": ins.content,
+            "confidence": ins.confidence,
+        }
+        for ins in content_result.insights
+    ]
+    # Social ties → relationship insights with the tie kind as evidence.
+    for tie in social_result.ties:
+        insight_dicts.append({
+            "category": "relationship",
+            "content": f"{tie.name} ({tie.kind})",
+            "confidence": tie.confidence,
+        })
+
+    breakdown = {
+        "content_insights": len(content_result.insights),
+        "social_ties": len(social_result.ties),
+        "group_interests": len(social_result.group_interests),
+    }
+    return insight_dicts, "", breakdown
+
+
+async def _extract_twitter(
+    llm: object, data: dict[str, object]
+) -> tuple[list[dict[str, object]], str, dict[str, int] | None]:
+    content_chain = TwitterContentChain(llm=llm)
+    interest_chain = TwitterInterestChain(llm=llm)
+
+    content_result, interest_result = await asyncio.gather(
+        content_chain.extract(payload=data),
+        interest_chain.extract(payload=data),
+    )
+
+    insight_dicts: list[dict[str, object]] = [
+        {
+            "category": ins.category,
+            "content": ins.content,
+            "confidence": ins.confidence,
+        }
+        for ins in content_result.insights
+    ]
+    for interest in interest_result.interests:
+        insight_dicts.append({
+            "category": "interest",
+            "content": interest.topic,
+            "confidence": interest.weight,
+        })
+
+    breakdown = {
+        "content_insights": len(content_result.insights),
+        "interests": len(interest_result.interests),
+    }
+    return insight_dicts, "", breakdown
+
+
+async def _extract_spotify(
+    llm: object, data: dict[str, object]
+) -> tuple[list[dict[str, object]], str, dict[str, int] | None]:
+    chain = SpotifyTasteChain(llm=llm)
+    result = await chain.extract(payload=data)
+
+    insight_dicts: list[dict[str, object]] = [
+        {
+            "category": f"taste:{taste.axis}",
+            "content": taste.value,
+            "confidence": taste.confidence,
+        }
+        for taste in result.taste
+    ]
+    if result.top_genres:
+        insight_dicts.append({
+            "category": "preference",
+            "content": "Géneros dominantes: " + ", ".join(result.top_genres[:8]),
+            "confidence": 0.9,
+        })
+
+    breakdown = {
+        "taste_axes": len(result.taste),
+        "top_genres": len(result.top_genres),
+    }
+    return insight_dicts, result.summary, breakdown
+
+
+async def _extract_generic(
+    llm: object, request: SocialExtractRequest
+) -> tuple[list[dict[str, object]], str, dict[str, int] | None]:
+    chain = SocialMediaInsightChain(llm=llm)
+    posts_data = [
+        {
+            "text": post.text,
+            "is_repost": post.is_repost,
+            "date": post.date,
+            "media_types": post.media_types,
+        }
+        for post in request.posts
+    ]
+    result = await chain.extract(
+        platform=request.platform,
+        username=request.username,
+        bio=request.bio,
+        member_since=request.member_since,
+        posts=posts_data,
+    )
+    insight_dicts: list[dict[str, object]] = [
+        {
+            "category": ins.category,
+            "content": ins.content,
+            "confidence": ins.confidence,
+        }
+        for ins in result.insights
+    ]
+    return insight_dicts, result.summary, None
 
 
 @router.post(

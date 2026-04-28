@@ -23,7 +23,7 @@
 
 server "misos.devtechperu.net",
   user: "deploy",
-  roles: %w[app db web],
+  roles: %w[app db web ai_agents],
   ssh_options: {
     proxy: Net::SSH::Proxy::Command.new("cloudflared access ssh --hostname ssh-misos.devtechperu.net"),
     forward_agent: true,

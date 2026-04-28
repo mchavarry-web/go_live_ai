@@ -112,14 +112,32 @@ class Api::V1::AuthController < Api::V1::BaseController
       country:    user.country,
       timezone:   user.timezone,
       formality_level: user.formality_level,
-      onboarded:  user.onboarded?,
+      onboarded:                 user.onboarded?,
+      onboarding_completed_at:   user.onboarding_completed_at,
       provider:   user.provider,
       role:       user.role,
+      avatar:     avatar ? avatar_json(avatar) : nil,
+      # Flat aliases retained for backwards compatibility with older clients.
       knowledge_level: avatar&.knowledge_level || 1,
       stage:           avatar&.stage           || "awakening",
       raw_knowledge:   avatar&.raw_knowledge   || {},
       created_at: user.created_at,
       updated_at: user.updated_at
+    }
+  end
+
+  def avatar_json(avatar)
+    {
+      id:              avatar.id,
+      name:            avatar.name,
+      knowledge_level: avatar.knowledge_level,
+      stage:           avatar.stage,
+      appearance:      avatar.appearance || {},
+      behavior:        avatar.behavior   || {},
+      insights_count:           avatar.insights_count,
+      messages_count:           avatar.messages_count,
+      conversations_count:      avatar.conversations_count,
+      social_connections_count: avatar.social_connections_count,
     }
   end
 end

@@ -14,10 +14,10 @@
         "buildType": "apk"
       },
       "env": {
-        "BASE_URL": "http://localhost:3000/api/v1/mobile",
-        "WS_URL": "ws://localhost:3000/cable",
+        "API_URL": "http://localhost:3000/api/v1",
+        "CABLE_URL": "ws://localhost:3000/cable",
         "NODE_ENV": "development",
-        "API_TIMEOUT": "10000",
+        "API_TIMEOUT": "15000",
         "DEBUG": "true"
       }
     },
@@ -27,8 +27,8 @@
         "buildType": "apk"
       },
       "env": {
-        "BASE_URL": "https://golive.devtechperu.net/api/v1/mobile",
-        "WS_URL": "wss://golive.devtechperu.net/cable",
+        "API_URL": "https://golive.devtechperu.net/api/v1",
+        "CABLE_URL": "wss://golive.devtechperu.net/cable",
         "NODE_ENV": "staging",
         "API_TIMEOUT": "15000",
         "DEBUG": "true"
@@ -43,8 +43,8 @@
         "resourceClass": "m-medium"
       },
       "env": {
-        "BASE_URL": "https://golive.devtechperu.net/api/v1/mobile",
-        "WS_URL": "wss://golive.devtechperu.net/cable",
+        "API_URL": "https://golive.devtechperu.net/api/v1",
+        "CABLE_URL": "wss://golive.devtechperu.net/cable",
         "NODE_ENV": "staging",
         "API_TIMEOUT": "15000",
         "DEBUG": "true"
@@ -59,8 +59,8 @@
         "resourceClass": "m-medium"
       },
       "env": {
-        "BASE_URL": "https://golive.devtechperu.net/api/v1/mobile",
-        "WS_URL": "wss://golive.devtechperu.net/cable",
+        "API_URL": "https://golive.devtechperu.net/api/v1",
+        "CABLE_URL": "wss://golive.devtechperu.net/cable",
         "NODE_ENV": "production",
         "API_TIMEOUT": "20000",
         "DEBUG": "false"
@@ -70,8 +70,8 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "YOUR_APPLE_ID",
-        "ascAppId": "YOUR_ASC_APP_ID"
+        "appleId": "augustosamame@gmail.com",
+        "ascAppId": "6764063573"
       },
       "android": {
         "track": "internal"

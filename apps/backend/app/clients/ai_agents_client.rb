@@ -69,7 +69,23 @@ class AiAgentsClient
   end
 
   def list_insights(user_id)
-    self.class.get("/internal/insights/#{user_id}").parsed_response
+    # FastAPI returns {user_id, total_insights, knowledge_level, insights[]}.
+    self.class.get("/internal/memory/#{user_id}").parsed_response
+  end
+
+  def delete_insight(user_id:, insight_id:)
+    self.class.delete("/internal/memory/#{user_id}/insights/#{insight_id}").code == 204
+  end
+
+  def delete_all_insights(user_id)
+    self.class.delete("/internal/memory/#{user_id}").code == 204
+  end
+
+  def teach(user_id:, message:, context: "")
+    post_json(
+      "/internal/insights/extract",
+      { user_id: user_id, message: message, context: context }
+    )
   end
 
   def search_memory(user_id:, query:)
@@ -87,17 +103,31 @@ class AiAgentsClient
   private
 
   # FastAPI emits SSE frames of the form:
-  #   data: <text-or-json>\n
+  #   data: {"token": "<text>"}\n
   #   \n
-  # The content lines may be:
-  #   - plain text tokens (from LangChain streaming)
-  #   - a JSON object like {"type": "done"} or {"type": "error", "message": "..."}
-  # We return the raw data portion (caller decides how to treat it).
+  # …with a final terminator frame "data: [DONE]\n\n". Some legacy frames may
+  # still be plain text. We return the unwrapped *text* so callers can append
+  # it directly to the accumulated assistant reply.
   def parse_sse_frame(frame)
-    frame
+    payload = frame
       .split("\n")
       .filter_map { |line| line.start_with?("data:") ? line.sub(/^data:\s?/, "") : nil }
       .join("")
+    return "" if payload.empty? || payload == "[DONE]"
+
+    if payload.start_with?("{")
+      parsed = begin
+        JSON.parse(payload)
+      rescue JSON::ParserError
+        return payload
+      end
+      # Token frames: { "token": "..." }; error frames: { "error": "..." }.
+      return parsed["token"].to_s if parsed.key?("token")
+      return "" if parsed.key?("error")  # caller should not append errors
+      return ""
+    end
+
+    payload
   end
 
   def post_json(path, payload, timeout: nil)

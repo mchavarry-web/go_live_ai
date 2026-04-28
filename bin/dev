@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Boots the backend dev stack via foreman, but first sweeps up anything
+# that foreman doesn't reliably kill on its own:
+#   - whatever is bound to our backend dev ports
+#       3000 (Rails / Puma)
+#       8001 (FastAPI / uvicorn)
+#       8081 (Expo / Metro — swept too, in case a previous bin/dev cycle
+#             when Expo was still in Procfile.dev left an orphan)
+#       6379 — NOT touched; that's Redis, shared with other projects
+#   - stale Puma pid file (apps/backend/tmp/pids/server.pid)
+#
+# Expo is started manually so you get its keyboard menu — see Procfile.dev:
+#   cd apps/frontend && yarn start
+#
+# Surgical: kills *only* processes bound to those exact ports, so other
+# Puma/Metro/uvicorn instances on the machine are safe.
+# Idempotent: missing ports / files are not errors.
+
+set -eo pipefail
+
+cd "$(dirname "$0")/.."
+
+free_port() {
+    local port=$1
+    local pids
+    pids=$(lsof -ti "tcp:${port}" -sTCP:LISTEN 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+        echo "bin/dev: freeing port ${port} (pids: ${pids})"
+        kill $pids 2>/dev/null || true
+        sleep 0.3
+        # Force-kill anything that ignored SIGTERM
+        pids=$(lsof -ti "tcp:${port}" -sTCP:LISTEN 2>/dev/null || true)
+        [ -n "$pids" ] && kill -9 $pids 2>/dev/null || true
+    fi
+}
+
+free_port 3000
+free_port 8001
+free_port 8081
+
+# Sidekiq doesn't bind a port, so port-sweep can't catch it. The pattern
+# matches *only* this project's Sidekiq workers (RVM gemset path); other
+# Sidekiq instances on the machine are untouched.
+sidekiq_pids=$(pgrep -f 'sidekiq 7\.[0-9]+\.[0-9]+ backend' || true)
+if [ -n "$sidekiq_pids" ]; then
+    echo "bin/dev: killing stray sidekiq workers ($sidekiq_pids)"
+    kill $sidekiq_pids 2>/dev/null || true
+    sleep 0.3
+    pgrep -f 'sidekiq 7\.[0-9]+\.[0-9]+ backend' | xargs -r kill -9 2>/dev/null || true
+fi
+
+rm -f apps/backend/tmp/pids/server.pid
+
+exec foreman start -f Procfile.dev

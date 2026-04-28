@@ -17,14 +17,13 @@ class User < ApplicationRecord
   after_create :ensure_avatar
 
   # ── Enums ─────────────────────────────────────────────────────────────
-  ROLES            = %w[user administrator].freeze
-  FORMALITY_LEVELS = %w[formal neutral informal].freeze
-  PROVIDERS        = %w[email google apple facebook].freeze
+  ROLES     = %w[user administrator].freeze
+  PROVIDERS = %w[email google apple facebook].freeze
 
   validates :phone_number, uniqueness: true, allow_blank: true
   validates :role,            inclusion: { in: ROLES }
-  validates :formality_level, inclusion: { in: FORMALITY_LEVELS }, allow_nil: true
-  validates :provider,        inclusion: { in: PROVIDERS },        allow_nil: true
+  validates :formality_level, numericality: { in: 0.0..1.0 }, allow_nil: true
+  validates :provider,        inclusion: { in: PROVIDERS },   allow_nil: true
   validates :country, length: { is: 2 }, allow_blank: true
   validates :provider_uid, uniqueness: { scope: :provider }, allow_blank: true
 

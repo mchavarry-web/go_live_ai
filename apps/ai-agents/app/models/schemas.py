@@ -166,23 +166,31 @@ class SocialPost(BaseModel):
 class SocialExtractRequest(BaseModel):
     """Request to extract insights from social media data in batch.
 
+    Two shapes are accepted:
+      1. Legacy "posts/bio" shape — used by the generic SocialMediaInsightChain.
+      2. Platform-specific raw `data` payload — used by the per-platform
+         chains (Facebook, Twitter, Spotify). Rails populates `data` from the
+         provider-specific response stashed on `SocialConnection.metadata.raw_data`.
+
     Attributes:
         user_id: The user whose social data is being analyzed.
         platform: Social media platform (e.g. "twitter", "spotify").
-        username: The user's handle on the platform.
+        username: The user's handle on the platform (optional for raw `data`).
         bio: The user's profile description.
         member_since: When the user joined the platform.
-        posts: List of posts/tweets to analyze.
+        posts: List of posts/tweets to analyze (legacy generic shape).
+        data: Platform-specific raw payload (preferred for FB/Twitter/Spotify).
     """
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
     user_id: str = Field(..., min_length=1)
     platform: str = Field(..., min_length=1, max_length=50)
-    username: str = Field(..., min_length=1, max_length=100)
+    username: str = ""
     bio: str = ""
     member_since: str = ""
     posts: list[SocialPost] = Field(default_factory=list)
+    data: dict[str, object] = Field(default_factory=dict)
 
 
 # ── Instagram ──────────────────────────────────────────────────────────

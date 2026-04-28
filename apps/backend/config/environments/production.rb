@@ -78,12 +78,18 @@ Rails.application.configure do
   # Only use :id for inspections in production.
   config.active_record.attributes_for_inspect = [ :id ]
 
-  # Enable DNS rebinding protection and other `Host` header attacks.
-  # config.hosts = [
-  #   "example.com",     # Allow requests from example.com
-  #   /.*\.example\.com/ # Allow requests from subdomains like `www.example.com`
-  # ]
-  #
-  # Skip DNS rebinding protection for the default health check endpoint.
-  # config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
+  # DNS rebinding protection. Add the production hostname (and any aliases)
+  # here, otherwise Rails 8 returns 403 to every request.
+  config.hosts << "golive.devtechperu.net"
+  # Allow load-balancer health-check pings on /up to skip the host check.
+  config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
+
+  # ActionCable also enforces an origin allowlist in production. The mobile
+  # client connects without an Origin header (raw WebSocket), so this is only
+  # relevant if you ever open Cable from a browser; widening here keeps it
+  # working for both.
+  config.action_cable.allowed_request_origins = [
+    "https://golive.devtechperu.net",
+    "wss://golive.devtechperu.net",
+  ]
 end

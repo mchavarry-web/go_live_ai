@@ -49,9 +49,9 @@ class SlangProfile(BaseModel):
     )
 
 
-_CALIBRATOR_TEMPLATE = """Analizá los siguientes mensajes de un usuario y determiná su estilo lingüístico.
+_CALIBRATOR_TEMPLATE = """Analiza los siguientes mensajes de un usuario y determina su estilo lingüístico.
 
-NO estás detectando el dialecto (ya lo sabemos). Solo necesitás medir:
+NO estás detectando el dialecto (ya lo sabemos). Solo necesitas medir:
 1. Qué tan formal o informal escribe (0.0 = muy informal con abreviaciones y jerga pesada, 1.0 = muy formal y cuidado).
 2. Expresiones, jergas o muletillas recurrentes que usa y que son propias de esta persona (no las genéricas del dialecto).
 3. Con qué frecuencia usa emojis: "none" si no usa, "low" si usa pocos, "high" si usa muchos.

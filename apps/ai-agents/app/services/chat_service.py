@@ -16,6 +16,7 @@ from langchain_core.language_models import BaseChatModel
 from langsmith import traceable
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import _get_async_session_maker
 from app.chains.avatar_chain import AvatarChain
 from app.chains.insight_chain import InsightExtractionChain
 from app.chains.persona_evolution_chain import PersonaEvolutionChain
@@ -794,40 +795,77 @@ class ChatService:
             )
             yield f"data: {error_payload}\n\n"
 
-        # Post-turn memory updates in parallel after streaming completes
+        # Schedule post-turn memory work as a true background task with its
+        # own DB session, then yield [DONE] and return immediately so Rails'
+        # streaming HTTP connection closes ASAP. Without this, Rails waits
+        # 5–10s for insight extraction + persona evolution before broadcasting
+        # the assistant message — which made the chat input look frozen.
         full_response = "".join(streamed_tokens) or None
         history = request.conversation_history or []
         turn_count = sum(1 for e in history if e.get("role") == "user")
         should_calibrate = turn_count > 0 and turn_count % _SLANG_CALIBRATION_INTERVAL == 0
 
-        post_turn_tasks = [
-            self._extract_and_store_insights(
-                user_id=request.user_id,
-                message=request.message,
-                existing_insights=mem.memory_insights,
-                session=session,
-                assistant_response=full_response,
-            ),
-            self._evolve_and_store_persona(
+        asyncio.create_task(
+            self._run_post_turn_tasks(
                 user_id=request.user_id,
                 user_message=request.message,
-                assistant_response=full_response or "",
-                prior_persona=mem.persona_insights,
-                session=session,
-            ),
-        ]
-        if should_calibrate:
-            post_turn_tasks.append(
-                self._calibrate_and_store_slang(
-                    user_id=request.user_id,
-                    conversation_history=history,
-                    session=session,
-                )
+                assistant_response=full_response,
+                memory_insights=mem.memory_insights,
+                persona_insights=mem.persona_insights,
+                conversation_history=history,
+                should_calibrate=should_calibrate,
             )
-
-        await asyncio.gather(*post_turn_tasks, return_exceptions=True)
+        )
 
         yield "data: [DONE]\n\n"
+
+    async def _run_post_turn_tasks(
+        self,
+        *,
+        user_id: str,
+        user_message: str,
+        assistant_response: Optional[str],
+        memory_insights: list,
+        persona_insights: list,
+        conversation_history: list,
+        should_calibrate: bool,
+    ) -> None:
+        """Run insight extraction, persona evolution, and slang calibration in
+        a fresh DB session so they survive the request-scoped session being
+        closed when the SSE generator returns.
+        """
+        session_maker = _get_async_session_maker(self.settings)
+        async with session_maker() as session:
+            try:
+                tasks = [
+                    self._extract_and_store_insights(
+                        user_id=user_id,
+                        message=user_message,
+                        existing_insights=memory_insights,
+                        session=session,
+                        assistant_response=assistant_response,
+                    ),
+                    self._evolve_and_store_persona(
+                        user_id=user_id,
+                        user_message=user_message,
+                        assistant_response=assistant_response or "",
+                        prior_persona=persona_insights,
+                        session=session,
+                    ),
+                ]
+                if should_calibrate:
+                    tasks.append(
+                        self._calibrate_and_store_slang(
+                            user_id=user_id,
+                            conversation_history=conversation_history,
+                            session=session,
+                        )
+                    )
+                await asyncio.gather(*tasks, return_exceptions=True)
+            except Exception:
+                logger.exception(
+                    "Post-turn memory tasks failed; reply already delivered to user"
+                )
 
 
 class _MemoryContext:

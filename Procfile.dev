@@ -2,5 +2,7 @@ rails:     bash -lc 'cd apps/backend && rvm use 3.3.4@go-live --create >/dev/nul
 jsbundle:  bash -lc 'cd apps/backend && yarn build --watch'
 cssbundle: bash -lc 'cd apps/backend && yarn build:css --watch'
 sidekiq:   bash -lc 'cd apps/backend && rvm use 3.3.4@go-live --create >/dev/null && bundle exec sidekiq'
-ai-agents: bash -lc 'cd apps/ai-agents && .venv/bin/uvicorn app.main:app --reload --port 8001'
-expo:      bash -lc 'cd apps/frontend && yarn start'
+ai-agents: bash -lc 'cd apps/ai-agents && .venv/bin/uvicorn app.main:app --port 8001'
+# Expo is intentionally NOT here — foreman captures stdin so the Expo
+# keyboard menu (q/r/i/a/w/…) doesn't work. Run it manually in its own
+# terminal:   cd apps/frontend && yarn start

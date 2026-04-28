@@ -244,9 +244,20 @@ class AvatarAgent:
                         tool_call_run_ids.add(run_id)
                         token_buffer.pop(run_id, None)
                     else:
-                        # This LLM turn is a real text response — yield its tokens.
-                        for token in token_buffer.pop(run_id, []):
-                            yield token
+                        # This LLM turn is a real text response.
+                        buffered = token_buffer.pop(run_id, [])
+                        if buffered:
+                            for token in buffered:
+                                yield token
+                        else:
+                            # Some models (notably OpenAI reasoning models like
+                            # o1/o3/o4-mini) don't emit per-token chunks during
+                            # streaming — content only arrives in the final message.
+                            # Fall back to yielding the full content so the user
+                            # sees a response instead of an empty stream.
+                            content = getattr(output_msg, "content", "") if output_msg else ""
+                            if content:
+                                yield content
 
         except GraphRecursionError:
             logger.warning(

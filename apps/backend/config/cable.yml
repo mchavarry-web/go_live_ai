@@ -1,5 +1,11 @@
 development:
-  adapter: async
+  # Must be `redis`, not `async` — `async` keeps broadcasts inside the
+  # process that emitted them, which means Sidekiq's ChatGenerationJob
+  # broadcasts never reach Puma's WebSocket subscribers. Redis crosses
+  # processes and matches production behaviour.
+  adapter: redis
+  url: <%= ENV.fetch("REDIS_URL") { "redis://localhost:6379/5" } %>
+  channel_prefix: go_live_development
 
 test:
   adapter: test

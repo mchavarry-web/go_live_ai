@@ -23,6 +23,14 @@ Rails.application.routes.draw do
       post "onboarding/complete", to: "onboarding#complete"
       post "onboarding/reset",    to: "onboarding#reset"
 
+      # Avatar (1:1 with user — appearance + behavior jsonb)
+      get    "avatar",                      to: "avatars#show"
+      patch  "avatar",                      to: "avatars#update"
+      get    "avatar/insights",             to: "avatars#insights"
+      delete "avatar/insights",             to: "avatars#delete_all_insights"
+      delete "avatar/insights/:id",         to: "avatars#delete_insight"
+      post   "avatar/teach",                to: "avatars#teach"
+
       # Per-user feature settings (proactive skill opt-out, future flags)
       get  "settings/features", to: "feature_settings#index"
       post "settings/features", to: "feature_settings#update"

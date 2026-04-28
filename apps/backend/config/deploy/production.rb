@@ -21,24 +21,14 @@
 # role :web, %w{user1@primary.com user2@additional.com}, other_property: :other_value
 # role :db,  %w{deploy@example.com}
 
-# Example server configuration (uncomment and modify for your production server):
-# server "go-live.com",
-#   user: "deploy",
-#   roles: %w[app db web],
-#   ssh_options: {
-#     forward_agent: true,
-#     auth_methods: %w[publickey]
-#   }
-
-# If using Cloudflare Access Tunnel:
-# server "go-live.com",
-#   user: "deploy",
-#   roles: %w[app db web],
-#   ssh_options: {
-#     proxy: Net::SSH::Proxy::Command.new("cloudflared access ssh --hostname ssh-go-live.com"),
-#     forward_agent: true,
-#     auth_methods: %w[publickey]
-#   }
+server "golive.devtechperu.net",
+  user: "deploy",
+  roles: %w[app db web ai_agents],
+  ssh_options: {
+    proxy: Net::SSH::Proxy::Command.new("cloudflared access ssh --hostname ssh-golive.devtechperu.net"),
+    forward_agent: true,
+    auth_methods: %w[publickey]
+  }
 
 
 # Configuration
