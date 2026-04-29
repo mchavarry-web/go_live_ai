@@ -43,6 +43,19 @@ Rails.application.routes.draw do
         post "proactive-greeting", to: "proactive_greetings#create"
       end
 
+      # Audio training (continuous recording → transcription → insights)
+      scope "audio" do
+        resources :sessions, only: %i[index show create destroy], controller: "audio_sessions" do
+          post :finish, on: :member
+          post :cancel, on: :member
+          resources :chunks, only: %i[create], controller: "audio_chunks"
+        end
+        post   "wipe",              to: "audio_sessions#wipe_all"
+        get    "voice_enrollment",  to: "voice_enrollments#show"
+        post   "voice_enrollment",  to: "voice_enrollments#create"
+        delete "voice_enrollment",  to: "voice_enrollments#destroy"
+      end
+
       # Device tokens + push notifications
       scope "notifications" do
         post   "device_tokens",         to: "device_tokens#create"

@@ -92,6 +92,43 @@ class AiAgentsClient
     post_json("/internal/memory/search", { user_id: user_id, query: query })
   end
 
+  # ── Audio ─────────────────────────────────────────────────────────────
+
+  # Stream chunk bytes to FastAPI for transcription. We send a multipart
+  # POST so dev (FileSystem Shrine) and prod (S3 Shrine) work identically.
+  # Presigned-URL transfer is deferred until S3 chunk volumes justify it.
+  def transcribe_chunk(user_id:, audio_io:, language: nil)
+    body = { "user_id" => user_id.to_s, "audio" => audio_io }
+    body["language"] = language if language.present?
+
+    response = self.class.post(
+      "/internal/audio/transcribe",
+      multipart: true,
+      body: body,
+      timeout: 120
+    )
+    response.parsed_response
+  end
+
+  def extract_audio_insights(user_id:, transcript:, source:, context: "")
+    post_json(
+      "/internal/audio/extract_insights",
+      { user_id: user_id.to_s, transcript: transcript, source: source, context: context },
+      timeout: 60
+    )
+  end
+
+  # Bulk delete insights matching a source string. With prefix=true,
+  # source matches by leading substring (e.g. source="audio" deletes all
+  # rows whose source begins with "audio:").
+  def delete_insights_by_source(user_id:, source:, prefix: false)
+    response = self.class.delete(
+      "/internal/memory/#{user_id}/by-source",
+      query: { source: source, prefix: prefix.to_s }
+    )
+    response.parsed_response
+  end
+
   # ── Health ────────────────────────────────────────────────────────────
 
   def health_ok?

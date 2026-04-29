@@ -23,6 +23,7 @@ import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { colors, spacing, borders } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
+import apiService from '../../services/apiService';
 
 const STORAGE_KEY = 'privacy_settings_v1';
 const DEFAULT_SETTINGS = {
@@ -146,6 +147,32 @@ export default function PrivacyScreen() {
     Linking.openURL('https://golive.devtechperu.net/privacy-policy').catch(() => {});
   }, []);
 
+  const handleWipeAudio = useCallback(() => {
+    Alert.alert(
+      'Borrar audio entrenado',
+      'Esto elimina todas tus sesiones de audio, archivos asociados y memorias derivadas (insights con origen en audio). No se puede deshacer.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Borrar audio',
+          style: 'destructive',
+          onPress: async () => {
+            const r = await apiService.wipeAllAudio();
+            if (!r.success) {
+              Alert.alert('Error', r.error || 'No se pudo borrar.');
+              return;
+            }
+            const counts = r.data?.deleted || {};
+            Alert.alert(
+              'Listo',
+              `Sesiones: ${counts.sessions || 0} · Chunks: ${counts.chunks || 0} · Memorias: ${counts.insights || 0}`,
+            );
+          },
+        },
+      ],
+    );
+  }, []);
+
   if (loading) return <LoadingSpinner fullscreen />;
 
   return (
@@ -213,6 +240,13 @@ export default function PrivacyScreen() {
           Zona de peligro
         </Text>
         <Card variant="default" padding="sm">
+          <ActionRow
+            label="Borrar audio entrenado"
+            icon="mic-off-outline"
+            onPress={handleWipeAudio}
+            color={colors.error}
+          />
+          <RowDivider />
           <ActionRow
             label="Eliminar mi cuenta"
             icon="trash-outline"

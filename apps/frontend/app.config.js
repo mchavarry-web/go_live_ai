@@ -18,13 +18,21 @@ export default {
       bundleIdentifier: 'com.devtechperu.golive',
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
+        NSMicrophoneUsageDescription:
+          'Tu avatar aprende de tus conversaciones cuando activas el entrenamiento por audio.',
       },
     },
     android: {
       package: 'com.devtechperu.golive',
       edgeToEdgeEnabled: true,
       softwareKeyboardLayoutMode: 'resize',
+      permissions: ['RECORD_AUDIO'],
     },
+    plugins: [
+      // expo-audio registers an iOS NSMicrophoneUsageDescription via its
+      // config plugin and the corresponding Android permission entries.
+      'expo-audio',
+    ],
     web: {
       bundler: 'metro',
       // SPA output — this project uses React Navigation, not expo-router.

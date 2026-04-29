@@ -61,22 +61,46 @@ _PERSONA_EVOLUTION_TEMPLATE = """Sos un observador externo analizando como un av
 
 Tu tarea: identificar patrones emergentes en el estilo del AVATAR (no hechos sobre el usuario).
 
-QUE BUSCAR:
+QUE BUSCAR (categorias generales):
 - Tono que el avatar adopta con esta persona (directo, humoristico, reflexivo, etc.)
 - Temas o preguntas que el avatar introduce espontaneamente con frecuencia
 - Limites o lineas que el avatar ha trazado (temas que evita, correcciones que hace)
 - Dinamicas relacionales unicas (bromas internas, referencias compartidas, rituales de saludo)
 - Ajustes de estilo que el avatar hace segun como responde el usuario
-- Jergas o expresiones compartidas que se van formando entre avatar y usuario (inside jokes, apodos, frases recurrentes)
 - Si el usuario reacciona positivamente al tono del avatar (se abre mas, responde mas largo, usa humor) o negativamente (responde cortante, cambia de tema, ignora)
-- Desaciertos de tono: momentos donde el avatar fue demasiado formal, demasiado casual, o uso jerga que no correspondia al dialecto del usuario
 
-REGLAS:
+GUARDARRIEL DE MARCADORES DIALECTALES (manejo especial — leer con atencion):
+Los siguientes son MARCADORES DIALECTALES y se tratan diferente al resto:
+- Particulas regionales: "pe"/"pue" (Peru), "che" (Argentina/Uruguay), "po"/"pos" (Chile/Mexico), "mero" (Mexico)
+- Voseo argentino/uruguayo (decis, tenes, queres, vos sos) vs. tuteo (dices, tienes, quieres, tu eres)
+- Vocabulario regional fuerte (chamo, parce, tio, guey, pana, etc.)
+- Code-switching ingles/espanol
+- Jerga generacional o local muy marcada
+
+REGLA CLAVE PARA MARCADORES DIALECTALES: NO promovas un marcador dialectal a una nota
+confirmada en su PRIMERA aparicion. Necesitas ver la MISMA marca en al menos 5 turnos
+previos antes de confirmar que el avatar deberia adoptarla. Hasta entonces:
+
+  - Emiti una OBSERVACION TENTATIVA con esta forma exacta:
+        "[obs:<marcador>] avatar reflejo '<marcador>' una vez en este turno."
+    Ejemplos:
+        "[obs:pe] avatar reflejo 'pe' una vez en este turno."
+        "[obs:voseo] avatar uso forma vos (decis/tenes) una vez en este turno."
+    Confianza tentativa: 0.45-0.55.
+  - Solo si el HISTORIAL DE PERSONALIDAD PREVIO ya contiene 5 o mas notas con el
+    mismo prefijo "[obs:<marcador>]", emiti UNA SOLA nota confirmada (sin prefijo
+    [obs:]) que diga que el avatar adopta ese marcador con este usuario. Confianza:
+    0.80-0.95.
+  - Despues de emitir la nota confirmada, podes seguir reflejando el marcador pero
+    NO sigas emitiendo "[obs:]" adicionales para ese mismo marcador.
+
+REGLAS GENERALES:
 1. Cada nota describe un patron del AVATAR, no un hecho del usuario.
 2. Solo registra patrones que sean claros en ESTE turno o coherentes con el historial previo.
 3. Maximo 3 notas por turno. Si no hay patron nuevo, devuelve lista vacia.
 4. Cada nota: oracion corta y concisa (maximo 200 caracteres).
-5. Confianza 0.5-0.8 para patrones incipientes; 0.8-1.0 para patrones ya establecidos.
+5. Para patrones NO dialectales: confianza 0.5-0.8 (incipientes) o 0.8-1.0 (establecidos).
+6. Para marcadores dialectales: seguir el guardarriel de arriba (tentativos 0.45-0.55, confirmados 0.80+).
 
 HISTORIAL DE PERSONALIDAD PREVIO:
 {prior_persona}

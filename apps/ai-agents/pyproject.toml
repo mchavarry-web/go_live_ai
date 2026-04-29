@@ -42,6 +42,9 @@ dependencies = [
     # HTTP Client
     "httpx>=0.26.0",
 
+    # Multipart form parsing (audio upload endpoint)
+    "python-multipart>=0.0.9",
+
     # Migrations
     "alembic>=1.13.0",
 

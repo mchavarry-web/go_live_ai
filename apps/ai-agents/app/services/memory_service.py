@@ -199,6 +199,29 @@ class MemoryService:
         )
         return created
 
+    async def delete_insights_by_source(
+        self,
+        user_id: str,
+        source: str,
+        prefix: bool = False,
+    ) -> int:
+        """Delete every insight for a user that matches a source.
+
+        Used by Rails for audio-session wipes:
+            • prefix=False, source="audio:<sid>" → one session
+            • prefix=True,  source="audio"      → every audio insight
+
+        Args:
+            user_id: The user's unique identifier.
+            source: Exact match, or prefix to be matched as ``source`` or
+                ``source:%`` when ``prefix`` is True.
+            prefix: When True, treat ``source`` as a leading namespace.
+
+        Returns:
+            Number of deleted insights.
+        """
+        return await self.repository.delete_by_source(user_id, source, prefix)
+
     async def delete_user_memory(self, user_id: str) -> int:
         """Delete all memory for a user (GDPR compliance).
 

@@ -155,6 +155,43 @@ async def get_insights_by_source(
 
 
 @router.delete(
+    "/{user_id}/by-source",
+    summary="Delete insights matching a source (exact or prefix)",
+    description=(
+        "Bulk-delete insights for a user that match a given source. "
+        "With prefix=True, matches both `source` and any `source:%` "
+        "(e.g. source='audio' deletes every insight whose source begins "
+        "with 'audio:'). Used by the audio-training wipe and "
+        "per-session deletion flows."
+    ),
+)
+async def delete_insights_by_source(
+    user_id: str,
+    settings: SettingsDep,
+    session: DbSessionDep,
+    source: str,
+    prefix: bool = False,
+) -> dict:
+    """Delete insights by source (exact or prefix)."""
+    try:
+        embeddings = get_embeddings(settings)
+        memory_service = MemoryService(session=session, embeddings=embeddings)
+        deleted = await memory_service.delete_insights_by_source(
+            user_id=user_id, source=source, prefix=prefix
+        )
+        return {"deleted": deleted, "source": source, "prefix": prefix}
+    except Exception as exc:
+        logger.exception(
+            "Delete-by-source failed: user_id=%s source=%s prefix=%s",
+            user_id, source, prefix,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete insights by source.",
+        ) from exc
+
+
+@router.delete(
     "/{user_id}/insights/{insight_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a single insight",

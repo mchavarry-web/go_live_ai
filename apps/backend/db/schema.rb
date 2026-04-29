@@ -10,9 +10,55 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_27_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_28_000004) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "audio_chunks", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.text "audio_data"
+    t.uuid "audio_session_id", null: false
+    t.datetime "created_at", null: false
+    t.float "duration_seconds"
+    t.string "idempotency_key"
+    t.string "language"
+    t.jsonb "metadata", default: {}, null: false
+    t.jsonb "segments", default: [], null: false
+    t.integer "sequence_number", null: false
+    t.datetime "started_at", null: false
+    t.text "transcript"
+    t.integer "transcription_attempts", default: 0, null: false
+    t.string "transcription_status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["audio_session_id", "sequence_number"], name: "index_audio_chunks_on_audio_session_id_and_sequence_number", unique: true
+    t.index ["audio_session_id"], name: "index_audio_chunks_on_audio_session_id"
+    t.index ["transcription_status"], name: "index_audio_chunks_on_transcription_status"
+  end
+
+  create_table "audio_sessions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.datetime "ended_at"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "started_at", null: false
+    t.string "status", default: "recording", null: false
+    t.integer "total_duration_seconds", default: 0, null: false
+    t.integer "transcribed_seconds", default: 0, null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["status"], name: "index_audio_sessions_on_status"
+    t.index ["user_id", "started_at"], name: "index_audio_sessions_on_user_id_and_started_at"
+    t.index ["user_id"], name: "index_audio_sessions_on_user_id"
+  end
+
+  create_table "audio_usages", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "transcribed_seconds", default: 0, null: false
+    t.datetime "updated_at", null: false
+    t.integer "uploaded_chunks", default: 0, null: false
+    t.date "usage_date", null: false
+    t.bigint "user_id", null: false
+    t.index ["user_id", "usage_date"], name: "index_audio_usages_on_user_id_and_usage_date", unique: true
+    t.index ["user_id"], name: "index_audio_usages_on_user_id"
+  end
 
   create_table "avatars", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.jsonb "appearance", default: {}, null: false
@@ -147,10 +193,27 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_27_000001) do
     t.index ["role"], name: "index_users_on_role"
   end
 
+  create_table "voice_enrollments", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.float "embedding_quality"
+    t.text "start_phrase_audio_data"
+    t.string "start_phrase_text"
+    t.string "status", default: "pending", null: false
+    t.text "stop_phrase_audio_data"
+    t.string "stop_phrase_text"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["user_id"], name: "index_voice_enrollments_on_user_id", unique: true
+  end
+
+  add_foreign_key "audio_chunks", "audio_sessions"
+  add_foreign_key "audio_sessions", "users"
+  add_foreign_key "audio_usages", "users"
   add_foreign_key "avatars", "users"
   add_foreign_key "conversations", "users"
   add_foreign_key "device_tokens", "users"
   add_foreign_key "messages", "conversations"
   add_foreign_key "social_connections", "users"
   add_foreign_key "user_feature_settings", "users"
+  add_foreign_key "voice_enrollments", "users"
 end

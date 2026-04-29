@@ -49,6 +49,11 @@ const CATEGORY_CONFIG = {
 // Origins of an insight — Mi Huella Digital groups insights by source so the
 // user can see how much each data stream contributes to the avatar's
 // knowledge. Unknown sources fall through to a neutral icon + raw key.
+//
+// Audio insights use namespaced sources like ``audio:<session_id>`` so we
+// can wipe a single session's contribution without scanning content. The
+// lookup below falls through to the prefix (the part before ":") so all
+// audio sessions roll up under one entry in the grid.
 const SOURCE_CONFIG = {
   conversation: { icon: 'chatbubble',     label: 'Conversaciones', color: '#A78BFA' },
   twitter:      { icon: 'logo-twitter',   label: 'Twitter/X',      color: '#1DA1F2' },
@@ -57,7 +62,25 @@ const SOURCE_CONFIG = {
   spotify:      { icon: 'musical-notes',  label: 'Spotify',        color: '#1DB954' },
   manual:       { icon: 'create',         label: 'Manual',         color: '#34D399' },
   onboarding:   { icon: 'rocket',         label: 'Onboarding',     color: '#FFB800' },
+  audio:        { icon: 'mic',            label: 'Audio',          color: '#FF6B9D' },
 };
+
+function resolveSourceConfig(source) {
+  if (SOURCE_CONFIG[source]) return SOURCE_CONFIG[source];
+  // Allow ``namespace:detail`` keys (e.g. ``audio:abc-123``) to resolve to
+  // their prefix entry without inflating the table for every variant.
+  const prefix = typeof source === 'string' ? source.split(':')[0] : null;
+  if (prefix && SOURCE_CONFIG[prefix]) return SOURCE_CONFIG[prefix];
+  return null;
+}
+
+function sourceBucketKey(source) {
+  if (typeof source !== 'string') return source;
+  const prefix = source.split(':')[0];
+  // If the prefix has its own row, group everything under it; otherwise
+  // keep the original key (preserves backwards-compat for plain sources).
+  return SOURCE_CONFIG[prefix] ? prefix : source;
+}
 
 const PROVIDERS = [
   { id: 'instagram', label: 'Instagram', icon: 'logo-instagram', color: colors.instagram },
@@ -222,7 +245,7 @@ export default function ProfileScreen({ navigation }) {
   insights.forEach((it) => {
     const cat = it.category || 'preference';
     insightsByCategory[cat] = (insightsByCategory[cat] || 0) + 1;
-    const src = it.source || 'conversation';
+    const src = sourceBucketKey(it.source || 'conversation');
     insightsBySource[src] = (insightsBySource[src] || 0) + 1;
   });
   const totalInsights = insights.length;
@@ -282,7 +305,7 @@ export default function ProfileScreen({ navigation }) {
             </View>
             <Card variant="glass" padding="md">
               {Object.entries(insightsBySource).map(([source, count]) => {
-                const config = SOURCE_CONFIG[source] || {
+                const config = resolveSourceConfig(source) || {
                   icon: 'ellipse',
                   label: source,
                   color: colors.textSecondary,
@@ -290,8 +313,18 @@ export default function ProfileScreen({ navigation }) {
                 const percentage = totalInsights > 0
                   ? Math.round((count / totalInsights) * 100)
                   : 0;
+                // Tapping a source row drills into the surface that
+                // owns that data. Audio → AudioHistory; everything else
+                // currently routes to MemoryManager which lists the
+                // raw insights (filterable by category there).
+                const target = source === 'audio' ? 'AudioHistory' : 'MemoryManager';
                 return (
-                  <View key={source} style={styles.sourceRow}>
+                  <TouchableOpacity
+                    key={source}
+                    style={styles.sourceRow}
+                    onPress={() => navigation.navigate(target)}
+                    activeOpacity={0.7}
+                  >
                     <View
                       style={[
                         styles.sourceIconBg,
@@ -308,7 +341,8 @@ export default function ProfileScreen({ navigation }) {
                         {count} insights · {percentage}%
                       </Text>
                     </View>
-                  </View>
+                    <Ionicons name="chevron-forward" size={14} color={colors.textTertiary} />
+                  </TouchableOpacity>
                 );
               })}
             </Card>
@@ -541,6 +575,14 @@ export default function ProfileScreen({ navigation }) {
               subtitle="Agrega información manualmente"
               onPress={() => navigation.navigate('TeachAvatar')}
               accentColor="#34D399"
+            />
+            <View style={styles.menuDivider} />
+            <MenuItem
+              icon="mic"
+              label="Entrenamiento por audio"
+              subtitle="Voz, frases y sesiones grabadas"
+              onPress={() => navigation.navigate('AudioHistory')}
+              accentColor="#FF6B9D"
             />
           </Card>
         </View>

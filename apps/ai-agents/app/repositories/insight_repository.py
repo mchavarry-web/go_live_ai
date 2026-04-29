@@ -198,6 +198,52 @@ class InsightRepository(BaseRepository[InsightModel]):
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def delete_by_source(
+        self,
+        user_id: str,
+        source: str,
+        prefix: bool = False,
+    ) -> int:
+        """Delete insights for a user that match the given source.
+
+        Args:
+            user_id: The user's unique identifier.
+            source: Exact source string (e.g. "audio:<session_id>"), or a
+                prefix (e.g. "audio") when ``prefix`` is True.
+            prefix: If True, match any source starting with ``source + ":"``
+                or equal to ``source``. Useful for "delete all audio insights".
+
+        Returns:
+            Number of deleted insights.
+        """
+        if prefix:
+            stmt = (
+                delete(InsightModel)
+                .where(
+                    InsightModel.user_id == user_id,
+                    (InsightModel.source == source) | InsightModel.source.like(f"{source}:%"),
+                )
+            )
+        else:
+            stmt = (
+                delete(InsightModel)
+                .where(
+                    InsightModel.user_id == user_id,
+                    InsightModel.source == source,
+                )
+            )
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        count = result.rowcount
+        logger.info(
+            "Deleted %d insights for user_id=%s by source=%s prefix=%s",
+            count,
+            user_id,
+            source,
+            prefix,
+        )
+        return count
+
     async def delete_by_id_and_user(
         self,
         insight_id: str,

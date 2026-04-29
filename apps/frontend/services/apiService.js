@@ -242,6 +242,139 @@ class ApiService {
     return this.request('/spotify/auth_url');
   }
 
+  // ── Audio training ───────────────────────────────────────────────
+  // Endpoints under /api/v1/audio/* — see AUDIO_TRAINING_PLAN.md.
+  // Sessions are JSON; chunk uploads are multipart with an Idempotency-Key
+  // header so retries from the offline queue are safe.
+  async listAudioSessions() {
+    return this.request('/audio/sessions');
+  }
+
+  async getAudioSession(id) {
+    return this.request(`/audio/sessions/${encodeURIComponent(id)}`);
+  }
+
+  async createAudioSession() {
+    return this.request('/audio/sessions', { method: 'POST' });
+  }
+
+  async finishAudioSession(id) {
+    return this.request(`/audio/sessions/${encodeURIComponent(id)}/finish`, {
+      method: 'POST',
+    });
+  }
+
+  async cancelAudioSession(id) {
+    return this.request(`/audio/sessions/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  async deleteAudioSession(id) {
+    return this.request(`/audio/sessions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async wipeAllAudio() {
+    return this.request('/audio/wipe', { method: 'POST' });
+  }
+
+  // Multipart chunk upload. ``localUri`` is a file:// path produced by
+  // expo-audio. RN's FormData accepts the {uri, name, type} shape directly.
+  async uploadAudioChunk({
+    sessionId,
+    sequenceNumber,
+    startedAt,
+    durationSeconds,
+    localUri,
+    mime = 'audio/m4a',
+    idempotencyKey,
+  }) {
+    const url = `${API_URL}/audio/sessions/${encodeURIComponent(sessionId)}/chunks`;
+    const headers = await this.getAuthHeaders(true);
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+
+    const form = new FormData();
+    form.append('sequence_number', String(sequenceNumber));
+    form.append('started_at', startedAt);
+    form.append('duration_seconds', String(durationSeconds));
+    form.append('audio', {
+      uri: localUri,
+      name: `chunk-${sequenceNumber}.m4a`,
+      type: mime,
+    });
+
+    const controller = new AbortController();
+    // Chunk uploads can be slow on bad networks — give them 5x the default.
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT * 5);
+
+    try {
+      if (DEBUG) console.log(`[API] POST ${url} (chunk ${sequenceNumber})`);
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: form,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 401 && this.logoutCallback) this.logoutCallback();
+        return { success: false, error: data.error || `HTTP ${response.status}`, status: response.status };
+      }
+      return { success: true, data, status: response.status };
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') return { success: false, error: 'Request timeout' };
+      return { success: false, error: error.message };
+    }
+  }
+
+  async getVoiceEnrollment() {
+    return this.request('/audio/voice_enrollment');
+  }
+
+  async deleteVoiceEnrollment() {
+    return this.request('/audio/voice_enrollment', { method: 'DELETE' });
+  }
+
+  // Multipart enrollment — both phrases captured in one request.
+  async submitVoiceEnrollment({ startUri, stopUri, startText, stopText, mime = 'audio/m4a' }) {
+    const url = `${API_URL}/audio/voice_enrollment`;
+    const headers = await this.getAuthHeaders(true);
+
+    const form = new FormData();
+    if (startText) form.append('start_phrase_text', startText);
+    if (stopText) form.append('stop_phrase_text', stopText);
+    if (startUri) {
+      form.append('start_phrase', {
+        uri: startUri,
+        name: 'start-phrase.m4a',
+        type: mime,
+      });
+    }
+    if (stopUri) {
+      form.append('stop_phrase', {
+        uri: stopUri,
+        name: 'stop-phrase.m4a',
+        type: mime,
+      });
+    }
+
+    try {
+      const response = await fetch(url, { method: 'POST', headers, body: form });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 401 && this.logoutCallback) this.logoutCallback();
+        return { success: false, error: data.error || `HTTP ${response.status}` };
+      }
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
   // ── Device tokens ────────────────────────────────────────────────
   async registerDeviceToken({ token, platform, metadata }) {
     return this.request('/notifications/device_tokens', {

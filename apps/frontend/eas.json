@@ -76,6 +76,24 @@
       "android": {
         "track": "internal"
       }
+    },
+    "staging": {
+      "ios": {
+        "appleId": "augustosamame@gmail.com",
+        "ascAppId": "6764063573"
+      },
+      "android": {
+        "track": "internal"
+      }
+    },
+    "preview": {
+      "ios": {
+        "appleId": "augustosamame@gmail.com",
+        "ascAppId": "6764063573"
+      },
+      "android": {
+        "track": "internal"
+      }
     }
   }
 }

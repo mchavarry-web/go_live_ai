@@ -10,7 +10,6 @@ import {
   Alert,
   FlatList,
   Modal,
-  ScrollView,
   StyleSheet,
   TextInput,
   TouchableOpacity,
@@ -56,22 +55,34 @@ function formatDate(dateStr) {
   return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// Audio insights are tagged ``audio:<session_id>`` by the Rails job, so
+// strip the suffix and surface the family name. Other namespaced sources
+// (e.g. ``social:twitter``) get the same prefix-aware treatment.
+const SOURCE_LABELS = {
+  conversation: 'Conversación',
+  manual:       'Manual',
+  social:       'Red Social',
+  audio:        'Audio',
+  twitter:      'Twitter/X',
+  instagram:    'Instagram',
+  facebook:     'Facebook',
+  spotify:      'Spotify',
+  onboarding:   'Onboarding',
+};
+
 function getSourceLabel(source) {
-  switch (source) {
-    case 'conversation': return 'Conversación';
-    case 'manual':       return 'Manual';
-    case 'social':       return 'Red Social';
-    default:             return source || '—';
-  }
+  if (!source) return '—';
+  if (SOURCE_LABELS[source]) return SOURCE_LABELS[source];
+  const prefix = source.split(':')[0];
+  return SOURCE_LABELS[prefix] || source;
 }
 
 function CategoryFilter({ selected, onSelect }) {
+  // Wrap-row instead of horizontal scroll: only 7 short categories, so a
+  // 2-row layout shows everything at once and avoids the right-edge
+  // clipping when the row overflows the screen width.
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.categoryList}
-    >
+    <View style={styles.categoryList}>
       {CATEGORIES.map((item) => (
         <TouchableOpacity
           key={item.key}
@@ -88,7 +99,7 @@ function CategoryFilter({ selected, onSelect }) {
           </Text>
         </TouchableOpacity>
       ))}
-    </ScrollView>
+    </View>
   );
 }
 
@@ -358,8 +369,11 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   categoryList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
+    gap: spacing.xs,
   },
   categoryChip: {
     paddingHorizontal: spacing.sm,
@@ -368,7 +382,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.elevated,
-    marginRight: spacing.xs,
     height: 32,
     justifyContent: 'center',
     alignItems: 'center',

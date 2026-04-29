@@ -19,3 +19,9 @@ end
 every 1.day, at: "4:00 am" do
   runner "SyncAvatarCountersJob.perform_later"
 end
+
+# Audio training cleanup — abandons stale `recording` sessions older than
+# 24h and re-tries chunks stuck in processing for >6h.
+every 1.hour do
+  runner "AudioSessionCleanupJob.perform_later"
+end

@@ -13,6 +13,9 @@ class User < ApplicationRecord
   has_many :social_connections, dependent: :destroy
   has_many :device_tokens,    dependent: :destroy
   has_many :user_feature_settings, dependent: :destroy
+  has_many :audio_sessions,   dependent: :destroy
+  has_one  :voice_enrollment, dependent: :destroy
+  has_many :audio_usages,     dependent: :destroy
 
   after_create :ensure_avatar
 

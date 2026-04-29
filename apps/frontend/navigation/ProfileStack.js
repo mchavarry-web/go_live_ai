@@ -9,6 +9,9 @@ import MemoryManagerScreen from '../screens/profile/MemoryManagerScreen';
 import DataAccessScreen from '../screens/profile/DataAccessScreen';
 import ConversationStatsScreen from '../screens/profile/ConversationStatsScreen';
 import TeachAvatarScreen from '../screens/profile/TeachAvatarScreen';
+import VoiceEnrollmentScreen from '../screens/audio/VoiceEnrollmentScreen';
+import AudioHistoryScreen from '../screens/audio/AudioHistoryScreen';
+import AudioSessionDetailScreen from '../screens/audio/AudioSessionDetailScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -30,6 +33,9 @@ export default function ProfileStack() {
       <Stack.Screen name="DataAccess" component={DataAccessScreen} options={{ title: 'Acceso a datos' }} />
       <Stack.Screen name="ConversationStats" component={ConversationStatsScreen} options={{ title: 'Estadísticas' }} />
       <Stack.Screen name="TeachAvatar" component={TeachAvatarScreen} options={{ title: 'Enseñar al avatar' }} />
+      <Stack.Screen name="VoiceEnrollment" component={VoiceEnrollmentScreen} options={{ title: 'Voz' }} />
+      <Stack.Screen name="AudioHistory" component={AudioHistoryScreen} options={{ title: 'Historial de audio' }} />
+      <Stack.Screen name="AudioSessionDetail" component={AudioSessionDetailScreen} options={{ title: 'Sesión' }} />
     </Stack.Navigator>
   );
 }

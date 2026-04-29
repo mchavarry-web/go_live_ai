@@ -97,6 +97,13 @@ def _build_persona_section(persona_insights: list[str] | None) -> str:
     These are not facts about the user but notes about how the avatar's
     voice, style and relationship with this person has been taking shape.
 
+    Tentative dialect-marker observations are stored with an ``[obs:<marker>]``
+    prefix by ``PersonaEvolutionChain``. They exist only as evidence the chain
+    counts before promoting a marker to a confirmed adoption note. They are
+    NOT injected into the avatar's prompt — the avatar should not start
+    mirroring a regional particle just because it appeared once or twice.
+    See ``app/chains/persona_evolution_chain.py`` for the full guardrail.
+
     Args:
         persona_insights: List of persona evolution strings, or None.
 
@@ -106,8 +113,12 @@ def _build_persona_section(persona_insights: list[str] | None) -> str:
     if not persona_insights:
         return ""
 
+    confirmed = [n for n in persona_insights if not n.lstrip().startswith("[obs:")]
+    if not confirmed:
+        return ""
+
     lines = ["TU VOZ Y EVOLUCIÓN CON ESTA PERSONA:"]
-    for note in persona_insights:
+    for note in confirmed:
         lines.append(f"- {note}")
     return "\n".join(lines)
 

@@ -143,6 +143,20 @@ class Settings(BaseSettings):
         description="Shared secret with the Rails backend (X-Internal-Token).",
     )
 
+    # ── Audio transcription ─────────────────────────────────────────────
+    # Provider for audio transcription. v1 ships "openai" only; "self_hosted"
+    # is reserved for a future faster-whisper / whisper.cpp deployment.
+    audio_transcription_provider: str = Field(
+        default="openai",
+        description="Audio transcription provider; one of {openai, self_hosted}.",
+    )
+    # Default model is gpt-4o-mini-transcribe (~$0.003/min, text-only).
+    # Switch to "whisper-1" for native segment timestamps at 2× the cost.
+    audio_transcription_model: str = Field(
+        default="gpt-4o-mini-transcribe",
+        description="Audio transcription model id (provider-specific).",
+    )
+
     # ── Logging ─────────────────────────────────────────────────────────
     log_level: str = "INFO"
 
