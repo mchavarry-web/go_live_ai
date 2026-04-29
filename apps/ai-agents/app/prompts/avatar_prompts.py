@@ -212,10 +212,27 @@ def _build_persona_section(persona_insights: list[str] | None) -> str:
     return "\n".join(lines)
 
 
+def _mode_demands_neutral_register(active_mode: str, mode_message_count: int) -> bool:
+    """Whether the active mode requires the avatar to drop dialect/casual cues.
+
+    Profesional and the nascent stage of Citas ban regional slang, voseo and
+    casual humor outright. We use this gate to suppress the language-style
+    and tone-preference sections so they cannot contradict the mode block
+    later in the prompt.
+    """
+    if active_mode == "professional":
+        return True
+    if active_mode == "dating" and mode_message_count < 30:
+        return True
+    return False
+
+
 def _build_language_style_section(
     country: str | None = None,
     formality_level: float | None = None,
     custom_expressions: list[str] | None = None,
+    active_mode: str = "friends",
+    mode_message_count: int = 0,
 ) -> str:
     """Build the language style / dialect adaptation section.
 
@@ -228,10 +245,18 @@ def _build_language_style_section(
             1.0 (very formal). Drives slang intensity selection.
         custom_expressions: Extra expressions detected from the user's
             messages that may not be in the catalog.
+        active_mode: Current avatar mode. Profesional and dating-nascent
+            suppress this section so dialect/voseo/jerga can't override
+            the mode block's neutral-register rules.
+        mode_message_count: Lifetime user messages in this mode; used only
+            to distinguish dating-nascent (< 30) from later dating stages.
 
     Returns:
         A formatted instruction block for the avatar's dialect, or empty.
     """
+    if _mode_demands_neutral_register(active_mode, mode_message_count):
+        return ""
+
     dialect = get_dialect(country)
     if not dialect:
         return ""
@@ -274,11 +299,24 @@ def _build_language_style_section(
     return "\n".join(lines)
 
 
-def _build_behavior_section(behavior_settings: dict[str, object] | None) -> str:
+def _build_behavior_section(
+    behavior_settings: dict[str, object] | None,
+    active_mode: str = "friends",
+    mode_message_count: int = 0,
+) -> str:
     """Build the behavior preferences section for the system prompt.
+
+    This block is appended to the END of the system prompt, so it's the most
+    recent instruction the model sees. To stop it from softening the mode
+    block's strict-register rules, we suppress tone-shaping lines (formality,
+    humor, verbosity, preferred_topics) when the active mode demands a
+    neutral register. ``language`` and ``restricted_topics`` always pass
+    through — they're safety/policy, not register.
 
     Args:
         behavior_settings: Dictionary with tone, language, and topic preferences.
+        active_mode: Current avatar mode.
+        mode_message_count: Lifetime user messages in the active mode.
 
     Returns:
         A formatted string block for behavior instructions, or empty string.
@@ -286,36 +324,38 @@ def _build_behavior_section(behavior_settings: dict[str, object] | None) -> str:
     if not behavior_settings:
         return ""
 
+    suppress_tone = _mode_demands_neutral_register(active_mode, mode_message_count)
     lines = ["\nPREFERENCIAS DE COMPORTAMIENTO:"]
 
-    # Tone formality
-    formality = behavior_settings.get("tone_formality", 0.5)
-    if isinstance(formality, (int, float)):
-        if formality < 0.3:
-            lines.append("- Tono: Muy casual y relajado")
-        elif formality < 0.5:
-            lines.append("- Tono: Casual y cercano")
-        elif formality > 0.7:
-            lines.append("- Tono: Formal y respetuoso")
-        # else: default, no instruction needed
+    if not suppress_tone:
+        # Tone formality
+        formality = behavior_settings.get("tone_formality", 0.5)
+        if isinstance(formality, (int, float)):
+            if formality < 0.3:
+                lines.append("- Tono: Muy casual y relajado")
+            elif formality < 0.5:
+                lines.append("- Tono: Casual y cercano")
+            elif formality > 0.7:
+                lines.append("- Tono: Formal y respetuoso")
+            # else: default, no instruction needed
 
-    # Humor
-    humor = behavior_settings.get("tone_humor", 0.5)
-    if isinstance(humor, (int, float)):
-        if humor > 0.7:
-            lines.append("- Usa humor y bromas con frecuencia")
-        elif humor < 0.3:
-            lines.append("- Mantén un tono serio, evita bromas")
+        # Humor
+        humor = behavior_settings.get("tone_humor", 0.5)
+        if isinstance(humor, (int, float)):
+            if humor > 0.7:
+                lines.append("- Usa humor y bromas con frecuencia")
+            elif humor < 0.3:
+                lines.append("- Mantén un tono serio, evita bromas")
 
-    # Verbosity
-    verbosity = behavior_settings.get("tone_verbosity", 0.5)
-    if isinstance(verbosity, (int, float)):
-        if verbosity > 0.7:
-            lines.append("- Sé detallado y extenso en tus respuestas")
-        elif verbosity < 0.3:
-            lines.append("- Sé breve y conciso en tus respuestas")
+        # Verbosity
+        verbosity = behavior_settings.get("tone_verbosity", 0.5)
+        if isinstance(verbosity, (int, float)):
+            if verbosity > 0.7:
+                lines.append("- Sé detallado y extenso en tus respuestas")
+            elif verbosity < 0.3:
+                lines.append("- Sé breve y conciso en tus respuestas")
 
-    # Language
+    # Language preference always passes through.
     language = behavior_settings.get("language", "es")
     if language == "en":
         lines.append("- Responde en inglés (English)")
@@ -324,12 +364,13 @@ def _build_behavior_section(behavior_settings: dict[str, object] | None) -> str:
     elif language == "es":
         lines.append("- Responde en español")
 
-    # Preferred topics
-    preferred = behavior_settings.get("preferred_topics", [])
-    if preferred and isinstance(preferred, list):
-        lines.append(f"- Temas que le interesan especialmente: {', '.join(preferred)}")
+    if not suppress_tone:
+        # Preferred topics — feels casual/conversational, suppress in strict modes.
+        preferred = behavior_settings.get("preferred_topics", [])
+        if preferred and isinstance(preferred, list):
+            lines.append(f"- Temas que le interesan especialmente: {', '.join(preferred)}")
 
-    # Restricted topics
+    # Restricted topics always pass through (safety/policy, not register).
     restricted = behavior_settings.get("restricted_topics", [])
     if restricted and isinstance(restricted, list):
         lines.append(f"- NO toques estos temas: {', '.join(restricted)}")
@@ -447,11 +488,17 @@ def build_avatar_system_prompt(
     health_section = _build_health_section(health_data)
     insights_section = _build_insights_section(insights)
     persona_section = _build_persona_section(persona_insights)
-    behavior_section = _build_behavior_section(behavior_settings)
+    behavior_section = _build_behavior_section(
+        behavior_settings,
+        active_mode=active_mode,
+        mode_message_count=mode_message_count,
+    )
     language_style_section = _build_language_style_section(
         country=country,
         formality_level=formality_level,
         custom_expressions=custom_expressions,
+        active_mode=active_mode,
+        mode_message_count=mode_message_count,
     )
     mode_section = _build_mode_section(
         active_mode=active_mode,

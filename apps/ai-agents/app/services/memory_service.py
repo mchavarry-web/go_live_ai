@@ -117,6 +117,7 @@ class MemoryService:
         query: str,
         top_k: int = 5,
         categories: list[str] | None = None,
+        sources: list[str] | None = None,
     ) -> list[InsightModel]:
         """Search for insights relevant to a query using semantic similarity.
 
@@ -128,6 +129,8 @@ class MemoryService:
             query: The search query (e.g., the user's message).
             top_k: Number of results to return.
             categories: Optional category filter.
+            sources: Optional source filter applied at the SQL level so the
+                LIMIT only sees matching rows (e.g. mode-scoped persona).
 
         Returns:
             List of InsightModel instances ordered by relevance.
@@ -139,6 +142,7 @@ class MemoryService:
                 query_embedding=query_embedding,
                 top_k=top_k,
                 categories=categories,
+                sources=sources,
             )
         except Exception:
             logger.exception(

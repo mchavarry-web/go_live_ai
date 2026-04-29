@@ -4,8 +4,10 @@
 //
 // Switching is seamless on the backend (no conversation forking, no
 // migration) — the only side effects are the avatar's next reply tone
-// and a UI indicator. We do an optimistic toggle and revert on failure
-// so taps feel instant.
+// and a UI indicator. ``pending`` gives the pill an immediate visual
+// toggle while the PATCH is in flight; ``onChange`` only fires once
+// the server has confirmed the new mode so callers that re-fetch
+// (e.g. /auth/me) see the updated value.
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,15 +27,18 @@ export default function ModeSwitcher({ activeMode, onChange }) {
 
   const select = async (next) => {
     if (!next || next === activeMode || pending) return;
+    // ``pending`` is the visual optimistic toggle. We do NOT fire onChange
+    // until the PATCH succeeds — otherwise a caller that calls /auth/me
+    // would race the in-flight write and read the previous mode.
     setPending(next);
-    onChange?.(next); // optimistic — caller can update local state immediately
     const res = await apiService.updateAvatar({ active_mode: next });
     setPending(null);
-    if (!res.success) {
-      // Revert on server failure. The caller's onChange handler should
-      // re-read the avatar from server state on the next focus to be safe.
-      onChange?.(activeMode);
+    if (res.success) {
+      onChange?.(next);
     }
+    // On failure: keep the existing activeMode. Pending was visual-only,
+    // so clearing it returns the pill to the prior state without needing
+    // to call onChange.
   };
 
   return (

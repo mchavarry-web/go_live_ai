@@ -77,6 +77,7 @@ class InsightRepository(BaseRepository[InsightModel]):
         query_embedding: list[float],
         top_k: int = 5,
         categories: list[str] | None = None,
+        sources: list[str] | None = None,
     ) -> list[InsightModel]:
         """Search for semantically similar insights using pgvector cosine distance.
 
@@ -85,6 +86,9 @@ class InsightRepository(BaseRepository[InsightModel]):
             query_embedding: The query vector (1536 dimensions).
             top_k: Number of top results to return.
             categories: Optional list of categories to filter by.
+            sources: Optional list of exact source strings to filter by.
+                Applied at the SQL level so the LIMIT only sees matching
+                rows (otherwise rival modes can crowd out the active one).
 
         Returns:
             List of InsightModel instances ordered by cosine similarity.
@@ -96,6 +100,8 @@ class InsightRepository(BaseRepository[InsightModel]):
         ]
         if categories:
             conditions.append(InsightModel.category.in_(categories))
+        if sources:
+            conditions.append(InsightModel.source.in_(sources))
 
         # Use pgvector cosine distance operator (<=>)
         stmt = (

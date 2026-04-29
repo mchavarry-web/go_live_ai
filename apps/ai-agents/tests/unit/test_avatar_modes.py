@@ -9,7 +9,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.schemas import UserProfile
-from app.prompts.avatar_prompts import _build_mode_section, build_avatar_system_prompt
+from app.prompts.avatar_prompts import (
+    _build_behavior_section,
+    _build_language_style_section,
+    _build_mode_section,
+    build_avatar_system_prompt,
+)
 
 
 class TestModeSection:
@@ -103,3 +108,98 @@ class TestUserProfileMode:
     def test_mode_message_count_must_be_non_negative(self) -> None:
         with pytest.raises(ValidationError):
             UserProfile(display_name="A", avatar_name="B", mode_message_count=-1)
+
+
+class TestModeSuppressesConflictingSections:
+    """Strict modes (professional, dating-nascent) must suppress the
+    dialect catalog and tone overrides that would otherwise contradict
+    the mode block. ``language`` and ``restricted_topics`` always pass
+    through because they're policy, not register."""
+
+    def test_language_style_section_empty_for_professional(self) -> None:
+        out = _build_language_style_section(
+            country="ar",
+            formality_level=0.2,
+            active_mode="professional",
+        )
+        assert out == ""
+
+    def test_language_style_section_empty_for_dating_nascent(self) -> None:
+        out = _build_language_style_section(
+            country="ar",
+            formality_level=0.2,
+            active_mode="dating",
+            mode_message_count=10,
+        )
+        assert out == ""
+
+    def test_language_style_section_renders_for_dating_warming(self) -> None:
+        out = _build_language_style_section(
+            country="ar",
+            formality_level=0.2,
+            active_mode="dating",
+            mode_message_count=50,
+        )
+        assert "ADAPTACIÓN LINGÜÍSTICA" in out
+
+    def test_language_style_section_renders_for_friends(self) -> None:
+        out = _build_language_style_section(
+            country="ar",
+            formality_level=0.2,
+            active_mode="friends",
+        )
+        assert "ADAPTACIÓN LINGÜÍSTICA" in out
+
+    def test_behavior_tone_suppressed_for_professional(self) -> None:
+        out = _build_behavior_section(
+            {
+                "tone_humor": 0.9,
+                "tone_formality": 0.1,
+                "tone_verbosity": 0.9,
+                "preferred_topics": ["futbol"],
+                "restricted_topics": ["politica"],
+                "language": "es",
+            },
+            active_mode="professional",
+        )
+        assert "humor y bromas" not in out
+        assert "Muy casual" not in out
+        assert "detallado y extenso" not in out
+        assert "Temas que le interesan" not in out
+        # Policy / safety stays.
+        assert "NO toques estos temas: politica" in out
+        assert "Responde en español" in out
+
+    def test_behavior_tone_suppressed_for_dating_nascent(self) -> None:
+        out = _build_behavior_section(
+            {"tone_humor": 0.9, "restricted_topics": ["sex"]},
+            active_mode="dating",
+            mode_message_count=5,
+        )
+        assert "humor y bromas" not in out
+        assert "NO toques estos temas: sex" in out
+
+    def test_behavior_tone_passes_through_for_friends(self) -> None:
+        out = _build_behavior_section(
+            {"tone_humor": 0.9, "tone_formality": 0.1},
+            active_mode="friends",
+        )
+        assert "humor y bromas" in out
+        assert "Muy casual" in out
+
+    def test_full_prompt_strips_dialect_for_professional_argentine(self) -> None:
+        # Sanity check: build the full prompt for an Argentine user in
+        # professional mode and assert no voseo / regional markers leak in.
+        out = build_avatar_system_prompt(
+            avatar_name="Avatar",
+            display_name="Augusto",
+            country="ar",
+            formality_level=0.2,
+            behavior_settings={"tone_humor": 0.9, "tone_formality": 0.1},
+            active_mode="professional",
+        )
+        assert "ADAPTACIÓN LINGÜÍSTICA" not in out
+        assert "Pronombre: vos" not in out
+        assert "humor y bromas" not in out
+        # Mode block still anchors the prompt.
+        assert "MODO ACTIVO: PROFESIONAL" in out

@@ -176,9 +176,10 @@ class ChatService:
         """Retrieve the avatar's persona evolution notes for this user.
 
         Persona evolution is mode-scoped: notes written by the chain carry
-        ``source = "persona_update:<mode>"``. We oversample by category and
-        filter by source so the avatar's voice in Profesional doesn't leak
-        into Citas (and vice-versa).
+        ``source = "persona_update:<mode>"``. We push the source filter into
+        the SQL ``WHERE`` clause so the cosine-distance ``LIMIT`` only sees
+        matching rows — otherwise a user with many notes in one mode would
+        crowd out the active mode at the top-k stage.
 
         Back-compat: rows written before mode support carry the bare
         ``persona_update`` source. Those surface only when the active mode
@@ -201,29 +202,22 @@ class ChatService:
                 session=session,
                 embeddings=self.embeddings,
             )
-            # Oversample so that mode filtering still leaves ~5 hits.
+            allowed_sources = [f"persona_update:{active_mode}"]
+            if active_mode == "friends":
+                # Legacy rows written before mode support default to friends.
+                allowed_sources.append("persona_update")
+
             relevant = await memory_service.get_relevant_insights(
                 user_id=user_id,
                 query=message,
-                top_k=15,
+                top_k=5,
                 categories=[InsightCategory.AVATAR_EVOLUTION.value],
+                sources=allowed_sources,
             )
             if not relevant:
                 return None
 
-            scoped_source = f"persona_update:{active_mode}"
-            filtered: list[str] = []
-            for ins in relevant:
-                src = ins.source or ""
-                if src == scoped_source:
-                    filtered.append(ins.content)
-                elif src == "persona_update" and active_mode == "friends":
-                    # Legacy rows written before mode support.
-                    filtered.append(ins.content)
-                if len(filtered) >= 5:
-                    break
-
-            return filtered or None
+            return [ins.content for ins in relevant]
         except Exception:
             logger.warning(
                 "Failed to retrieve persona insights for user_id=%s",
