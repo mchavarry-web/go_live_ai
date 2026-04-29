@@ -5036,6 +5036,11 @@ react-native-dotenv@^3.4.11:
   dependencies:
     dotenv "^16.4.5"
 
+react-native-edge-to-edge@^1.8.1:
+  version "1.8.1"
+  resolved "https://registry.yarnpkg.com/react-native-edge-to-edge/-/react-native-edge-to-edge-1.8.1.tgz#a1044ddbf4007a029980239e16c6a066e60756d2"
+  integrity sha512-bhvsKqeX9PGkY9wBUk9vni/tJNJdKtLPbs/j3e/3CdV4JmUWfTXYYoL+4Hc8Wmej+5eJxkc8KOFa454ruFWBCA==
+
 react-native-fbsdk-next@^13.3.0:
   version "13.4.3"
   resolved "https://registry.yarnpkg.com/react-native-fbsdk-next/-/react-native-fbsdk-next-13.4.3.tgz#efdbe47690c7addf5b14970e565814149b00a2d5"

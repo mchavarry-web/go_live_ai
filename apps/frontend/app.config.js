@@ -32,6 +32,11 @@ export default {
       // expo-audio registers an iOS NSMicrophoneUsageDescription via its
       // config plugin and the corresponding Android permission entries.
       'expo-audio',
+      // SDK 54 edge-to-edge bridge — required for android.edgeToEdgeEnabled
+      // so react-native-safe-area-context picks up status / nav bar insets.
+      // Without this, SafeAreaView under-pads at top and the tab bar
+      // ignores the Android nav bar at bottom.
+      'react-native-edge-to-edge',
     ],
     web: {
       bundler: 'metro',

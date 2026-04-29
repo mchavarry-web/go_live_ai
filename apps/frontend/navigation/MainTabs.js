@@ -12,6 +12,7 @@ import { Pressable, View, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, borders, spacing } from '../theme';
 import HomeScreen from '../screens/HomeScreen';
@@ -98,6 +99,14 @@ function AudioTabButton(props) {
 }
 
 export default function MainTabs() {
+  // Honor the bottom safe-area inset so the tab bar clears the iOS home
+  // indicator (~34dp) and Android's gesture bar / 3-button nav (~0–48dp).
+  // Hard-coding paddingBottom — as we used to — buried the labels under
+  // Android's nav. Floor at 8dp so the labels still have breathing room
+  // on full-screen devices that report inset 0.
+  const insets = useSafeAreaInsets();
+  const bottomPad = Math.max(insets.bottom, 8);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -108,8 +117,8 @@ export default function MainTabs() {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
           borderTopWidth: borders.width.thin,
-          height: 85,
-          paddingBottom: 28,
+          height: 56 + bottomPad,
+          paddingBottom: bottomPad,
           paddingTop: 8,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
