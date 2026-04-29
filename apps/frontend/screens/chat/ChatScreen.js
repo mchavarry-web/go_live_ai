@@ -182,6 +182,7 @@ export default function ChatScreen({ route, navigation }) {
   useEffect(() => {
     if (!conversationId) return undefined;
     let mounted = true;
+    console.log('[chat-effect] cable mount conv=', conversationId);
 
     const channel = new ChatChannel(conversationId);
     channelRef.current = channel;
@@ -219,6 +220,7 @@ export default function ChatScreen({ route, navigation }) {
     channel.connect();
 
     return () => {
+      console.log('[chat-effect] cable cleanup conv=', conversationId);
       mounted = false;
       channel.disconnect();
       channelRef.current = null;

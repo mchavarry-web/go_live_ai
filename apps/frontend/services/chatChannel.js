@@ -31,9 +31,11 @@ export class ChatChannel {
     const token = await AsyncStorage.getItem('access_token');
     const base = platformConfig.getCableUrl();
     const url = `${base}?token=${encodeURIComponent(token || '')}`;
+    console.log('[chat-cable] connecting to', base, 'conv=', this.conversationId);
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
+      console.log('[chat-cable] open → subscribe', this.conversationId);
       this.ws.send(JSON.stringify({ command: 'subscribe', identifier: this.identifier }));
     };
 
@@ -42,25 +44,35 @@ export class ChatChannel {
       try {
         payload = JSON.parse(event.data);
       } catch {
+        console.warn('[chat-cable] non-JSON frame', event.data);
         return;
       }
       // ActionCable protocol envelope: { type, identifier, message }
-      if (payload.type === 'ping' || payload.type === 'welcome' || payload.type === 'confirm_subscription') return;
+      if (payload.type === 'ping') return;
+      if (payload.type === 'welcome' || payload.type === 'confirm_subscription') {
+        console.log('[chat-cable]', payload.type);
+        return;
+      }
       if (payload.type === 'reject_subscription') {
+        console.warn('[chat-cable] subscription rejected');
         this.handlers.error?.({ message: 'subscription rejected' });
         return;
       }
       const body = payload.message;
       if (!body) return;
+      console.log('[chat-cable] frame', body.type, body.content ? `(${body.content.length} chars)` : '');
       const handler = this.handlers[body.type];
       if (handler) handler(body);
+      else console.warn('[chat-cable] no handler for', body.type);
     };
 
     this.ws.onerror = (err) => {
+      console.warn('[chat-cable] error', err?.message);
       this.handlers.error?.({ message: err?.message || 'websocket error' });
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (e) => {
+      console.log('[chat-cable] close code=', e?.code, 'reason=', e?.reason, 'clean=', e?.wasClean);
       // caller can reconnect by instantiating a new ChatChannel
     };
   }

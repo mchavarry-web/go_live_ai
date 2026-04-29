@@ -22,7 +22,10 @@ class ProactivePushJob < ApplicationJob
   }.freeze
 
   def perform(time_window: nil)
-    target_users(time_window).find_each do |user|
+    # `target_users` returns a plain Array (Ruby `select` with a block loads
+    # the records). Iterate with `each`, not `find_each` — the latter is
+    # only available on AR relations.
+    target_users(time_window).each do |user|
       next if user.device_tokens.active.empty?
       next if throttled?(user)
       ProactiveGreetingForUserJob.perform_later(user_id: user.id, time_window: time_window)
