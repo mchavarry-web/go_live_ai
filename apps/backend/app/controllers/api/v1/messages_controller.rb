@@ -15,6 +15,11 @@ class Api::V1::MessagesController < Api::V1::BaseController
 
   def create
     msg = @conversation.messages.create!(role: "user", content: params.require(:content))
+    # Bump the per-mode lifetime counter so the Citas ramp can graduate
+    # nascent → warming → established. Counts the user's outgoing
+    # messages only (avatar replies don't count). The increment is atomic
+    # via jsonb_set on the avatar row; see Avatar#increment_mode_message_count!.
+    current_user.avatar&.increment_mode_message_count!
     ChatGenerationJob.perform_later(
       conversation_id: @conversation.id,
       user_message_id: msg.id

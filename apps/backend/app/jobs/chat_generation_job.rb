@@ -89,12 +89,18 @@ class ChatGenerationJob < ApplicationJob
   end
 
   def user_profile(user)
+    avatar = user.avatar
     {
       display_name:    user.name,
-      avatar_name:     user.avatar&.name.presence || "Avatar",
+      avatar_name:     avatar&.name.presence || "Avatar",
       country:         user.country,
       interests:       [],
-      knowledge_level: [((user.avatar&.knowledge_level || 1) + 1) / 2, 5].min
+      knowledge_level: [((avatar&.knowledge_level || 1) + 1) / 2, 5].min,
+      # Behavior mode + the user's lifetime message count *in that mode*.
+      # FastAPI uses both: the mode picks the prompt block (Profesional /
+      # Amigos / Citas) and the count drives the Citas ramp thresholds.
+      active_mode:        avatar&.active_mode || "friends",
+      mode_message_count: avatar&.message_count_in_active_mode || 0
     }.compact
   end
 

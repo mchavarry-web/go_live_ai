@@ -19,11 +19,16 @@ class Api::V1::AvatarsController < Api::V1::BaseController
     merged_appearance = (@avatar.appearance || {}).deep_merge(appearance_param)
     merged_behavior   = (@avatar.behavior   || {}).deep_merge(behavior_param)
 
-    @avatar.assign_attributes(
+    attrs = {
       name:       params[:name].presence || @avatar.name,
       appearance: merged_appearance,
       behavior:   merged_behavior
-    )
+    }
+    # active_mode is optional; only validate / set when the caller sends one.
+    # Inclusion validation in Avatar::MODES handles invalid values via 422.
+    attrs[:active_mode] = params[:active_mode] if params.key?(:active_mode)
+
+    @avatar.assign_attributes(attrs)
 
     if @avatar.save
       render_success(avatar: serialize(@avatar))
@@ -96,6 +101,8 @@ class Api::V1::AvatarsController < Api::V1::BaseController
       stage:           avatar.stage,
       appearance:      avatar.appearance || {},
       behavior:        avatar.behavior   || {},
+      active_mode:           avatar.active_mode,
+      mode_message_counts:   avatar.mode_message_counts || {},
       insights_count:           avatar.insights_count,
       messages_count:           avatar.messages_count,
       conversations_count:      avatar.conversations_count,

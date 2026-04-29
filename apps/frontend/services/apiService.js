@@ -122,11 +122,12 @@ class ApiService {
     return this.request('/avatar');
   }
 
-  async updateAvatar({ name, appearance, behavior } = {}) {
+  async updateAvatar({ name, appearance, behavior, active_mode } = {}) {
     const body = {};
     if (name !== undefined) body.name = name;
     if (appearance !== undefined) body.appearance = appearance;
     if (behavior !== undefined) body.behavior = behavior;
+    if (active_mode !== undefined) body.active_mode = active_mode;
     return this.request('/avatar', {
       method: 'PATCH',
       body: JSON.stringify(body),

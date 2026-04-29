@@ -6,6 +6,7 @@ validation, immutability where appropriate, and complete type hints.
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -51,6 +52,14 @@ class UserProfile(BaseModel):
     introvert_extrovert: float | None = None
     rational_emotional: float | None = None
     values: list[str] = Field(default_factory=list)
+    # User-selected behavior mode. Drives the strongest constraints in the
+    # avatar's system prompt (tone, register, dialect-mirroring rules) and
+    # scopes persona-evolution insights via the source string.
+    active_mode: Literal["professional", "friends", "dating"] = "friends"
+    # Lifetime user-message count IN the active mode. Used by the dating-mode
+    # ramp (nascent < 30 < warming < 150 ≤ established) to soften register as
+    # familiarity grows. Other modes ignore this value.
+    mode_message_count: int = Field(default=0, ge=0)
 
     @field_validator("interests")
     @classmethod

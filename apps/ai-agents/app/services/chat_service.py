@@ -116,6 +116,8 @@ class ChatService:
             "persona_insights": persona_insights,
             "formality_level": formality_level,
             "custom_expressions": custom_expressions,
+            "active_mode": profile.active_mode,
+            "mode_message_count": profile.mode_message_count,
         }
 
     async def _get_memory_insights(
@@ -169,13 +171,24 @@ class ChatService:
         user_id: str,
         message: str,
         session: Optional[AsyncSession] = None,
+        active_mode: str = "friends",
     ) -> list[str] | None:
         """Retrieve the avatar's persona evolution notes for this user.
+
+        Persona evolution is mode-scoped: notes written by the chain carry
+        ``source = "persona_update:<mode>"``. We oversample by category and
+        filter by source so the avatar's voice in Profesional doesn't leak
+        into Citas (and vice-versa).
+
+        Back-compat: rows written before mode support carry the bare
+        ``persona_update`` source. Those surface only when the active mode
+        is ``friends`` (the historical default).
 
         Args:
             user_id: The user's unique identifier.
             message: The current message, used for semantic relevance ranking.
             session: Optional database session.
+            active_mode: Current avatar mode; persona pool is filtered to it.
 
         Returns:
             List of persona note strings, or None if memory is not available.
@@ -188,15 +201,29 @@ class ChatService:
                 session=session,
                 embeddings=self.embeddings,
             )
+            # Oversample so that mode filtering still leaves ~5 hits.
             relevant = await memory_service.get_relevant_insights(
                 user_id=user_id,
                 query=message,
-                top_k=5,
+                top_k=15,
                 categories=[InsightCategory.AVATAR_EVOLUTION.value],
             )
-            if relevant:
-                return [ins.content for ins in relevant]
-            return None
+            if not relevant:
+                return None
+
+            scoped_source = f"persona_update:{active_mode}"
+            filtered: list[str] = []
+            for ins in relevant:
+                src = ins.source or ""
+                if src == scoped_source:
+                    filtered.append(ins.content)
+                elif src == "persona_update" and active_mode == "friends":
+                    # Legacy rows written before mode support.
+                    filtered.append(ins.content)
+                if len(filtered) >= 5:
+                    break
+
+            return filtered or None
         except Exception:
             logger.warning(
                 "Failed to retrieve persona insights for user_id=%s",
@@ -315,8 +342,13 @@ class ChatService:
         assistant_response: str,
         prior_persona: list[str] | None,
         session: Optional[AsyncSession] = None,
+        active_mode: str = "friends",
     ) -> None:
         """Run the persona evolution chain and store resulting notes.
+
+        Persona notes are mode-scoped — the source string ``persona_update:<mode>``
+        ensures Profesional voice doesn't leak into Citas (and vice-versa) on
+        retrieval.
 
         Failures are logged but never propagate — this must not affect response
         delivery.
@@ -327,6 +359,7 @@ class ChatService:
             assistant_response: The avatar's reply in this turn.
             prior_persona: Existing persona notes for context.
             session: Optional database session.
+            active_mode: Current avatar mode; scopes the source string.
         """
         if not session or not self.embeddings:
             return
@@ -354,12 +387,13 @@ class ChatService:
                     }
                     for note in notes
                 ],
-                source="persona_update",
+                source=f"persona_update:{active_mode}",
             )
             logger.info(
-                "Stored %d persona evolution notes for user_id=%s",
+                "Stored %d persona evolution notes for user_id=%s mode=%s",
                 len(notes),
                 user_id,
+                active_mode,
             )
         except Exception:
             logger.exception(
@@ -480,7 +514,11 @@ class ChatService:
 
         # Step 1: Retrieve all memory context in parallel
         mem = await _gather_memory(
-            self, request.user_id, request.message, session
+            self,
+            request.user_id,
+            request.message,
+            session,
+            active_mode=request.user_profile.active_mode,
         )
 
         # Step 2: Build user profile with memory context
@@ -532,6 +570,7 @@ class ChatService:
                 assistant_response=result["response"],
                 prior_persona=mem.persona_insights,
                 session=session,
+                active_mode=request.user_profile.active_mode,
             ),
         ]
         if should_calibrate:
@@ -758,7 +797,11 @@ class ChatService:
         """
         # Retrieve memory context
         mem = await _gather_memory(
-            self, request.user_id, request.message, session
+            self,
+            request.user_id,
+            request.message,
+            session,
+            active_mode=request.user_profile.active_mode,
         )
 
         user_profile = self._extract_user_profile(
@@ -814,6 +857,7 @@ class ChatService:
                 persona_insights=mem.persona_insights,
                 conversation_history=history,
                 should_calibrate=should_calibrate,
+                active_mode=request.user_profile.active_mode,
             )
         )
 
@@ -829,6 +873,7 @@ class ChatService:
         persona_insights: list,
         conversation_history: list,
         should_calibrate: bool,
+        active_mode: str = "friends",
     ) -> None:
         """Run insight extraction, persona evolution, and slang calibration in
         a fresh DB session so they survive the request-scoped session being
@@ -851,6 +896,7 @@ class ChatService:
                         assistant_response=assistant_response or "",
                         prior_persona=persona_insights,
                         session=session,
+                        active_mode=active_mode,
                     ),
                 ]
                 if should_calibrate:
@@ -896,6 +942,7 @@ async def _gather_memory(
     user_id: str,
     message: str,
     session: Optional[AsyncSession],
+    active_mode: str = "friends",
 ) -> _MemoryContext:
     """Fetch user insights, persona notes, and language style concurrently.
 
@@ -904,13 +951,17 @@ async def _gather_memory(
         user_id: The user's unique identifier.
         message: The current message used for semantic ranking.
         session: Optional database session.
+        active_mode: Current avatar mode; passed through to persona retrieval
+            so notes from other modes don't leak into this turn's context.
 
     Returns:
         A _MemoryContext with all gathered data.
     """
     results = await asyncio.gather(
         service._get_memory_insights(user_id=user_id, message=message, session=session),
-        service._get_persona_insights(user_id=user_id, message=message, session=session),
+        service._get_persona_insights(
+            user_id=user_id, message=message, session=session, active_mode=active_mode
+        ),
         service._get_language_style(user_id=user_id, session=session),
         return_exceptions=True,
     )

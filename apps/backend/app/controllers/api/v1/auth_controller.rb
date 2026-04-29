@@ -134,6 +134,8 @@ class Api::V1::AuthController < Api::V1::BaseController
       stage:           avatar.stage,
       appearance:      avatar.appearance || {},
       behavior:        avatar.behavior   || {},
+      active_mode:           avatar.active_mode,
+      mode_message_counts:   avatar.mode_message_counts || {},
       insights_count:           avatar.insights_count,
       messages_count:           avatar.messages_count,
       conversations_count:      avatar.conversations_count,

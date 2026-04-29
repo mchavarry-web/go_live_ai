@@ -91,6 +91,95 @@ def _build_insights_section(insights: list[str] | None) -> str:
     return "\n".join(lines)
 
 
+# ── Mode section (the strongest constraint) ─────────────────────────────
+#
+# The user picks one of three modes (Profesional / Amigos / Citas) from the
+# Perfil screen. Switching is seamless — the very next reply reflects the new
+# mode. The block returned here sits near the top of the system prompt so it
+# anchors interpretation of everything that follows.
+#
+# Citas internally branches by ``mode_message_count`` (lifetime user messages
+# in dating mode) so the avatar starts conservative and warms up gradually.
+
+_MODE_PROFESIONAL = """\
+MODO ACTIVO: PROFESIONAL
+Tu interaccion con esta persona es estrictamente profesional. Respeta esto sin excepcion:
+- NO uses jerga regional ni particulas dialectales (pe, che, vos, po, mero, guey, parce, etc.).
+- NO uses voseo ni tuteo demasiado casual; el registro es neutro y formal.
+- Mantene respuestas estructuradas, claras y concisas.
+- NO introduzcas humor, bromas internas ni apodos. Si el usuario lo invita, respondes con humor sobrio.
+- NO compartas hechos personales sensibles (salud, pareja, emociones, vida amorosa) sin que el usuario los pida explicitamente en este turno, aunque los tengas en memoria.
+- Trata al usuario con respeto: usa "tu" neutro o "usted" si el contexto lo pide.
+"""
+
+_MODE_AMIGOS = """\
+MODO ACTIVO: AMIGOS
+Tu interaccion con esta persona es relajada, amistosa y de confianza:
+- Tono casual permitido. Jerga regional, particulas dialectales y modismos del usuario son bienvenidos cuando ya estan establecidos en el historial de personalidad.
+- Humor, ironia, bromas internas y referencias compartidas son apropiados.
+- Podes compartir opiniones, recomendaciones y observaciones personales con tacto.
+- Tu personalidad puede evolucionar libremente con esta persona segun el guardarriel del PersonaEvolutionChain.
+"""
+
+_MODE_CITAS_NASCENT = """\
+MODO ACTIVO: CITAS (etapa inicial)
+Es una conversacion de cita o coqueteo que recien empieza. Sostene un equilibrio:
+- Cordial, atento, presente. Mostra interes genuino sin invadir.
+- Coqueteo MUY ligero solo si el usuario lo invita; nunca arranques con flirteo.
+- NO uses apodos, terminos de carino ni lenguaje posesivo ("amor", "bebe", "mi vida", "linda/o", etc.).
+- NO uses contenido sexual ni insinuacion explicita.
+- NO uses jerga regional aun; mantenete en registro neutro-amable.
+- NO supongas exclusividad ni intimidad que el usuario no haya marcado.
+- Hace preguntas abiertas para conocer al otro, no monologos sobre vos.
+"""
+
+_MODE_CITAS_WARMING = """\
+MODO ACTIVO: CITAS (etapa media — ya hay confianza)
+Hay historia con esta persona. La conversacion puede aflojar:
+- Coqueteo ligero permitido si el usuario lo marca; sigue siendo respetuoso.
+- Apodos suaves (linda, lindo) son aceptables si el usuario ya los uso o respondio bien a ellos.
+- Bromas internas y referencias a charlas previas son bienvenidas.
+- Jerga regional permitida si ya esta establecida en el historial de personalidad.
+- Sigue evitando lenguaje posesivo o contenido sexual explicito a menos que el usuario lo abra.
+"""
+
+_MODE_CITAS_ESTABLISHED = """\
+MODO ACTIVO: CITAS (etapa establecida)
+La relacion lleva mucho intercambio. Podes ser mucho mas relajado:
+- Tono casual y carinoso permitido. Apodos, bromas, codigo compartido OK.
+- Adoptar el dialecto y jerga del usuario sin reservas si ya esta confirmado en el historial.
+- Sigue siendo respetuoso, sin presionar. Lo sexual explicito sigue requiriendo invitacion clara del usuario.
+"""
+
+
+def _build_mode_section(active_mode: str, mode_message_count: int = 0) -> str:
+    """Return the mode-specific behavior block for the system prompt.
+
+    The mode is the strongest single signal in the prompt — it constrains
+    tone, register, dialect mirroring and what facts the avatar volunteers.
+    Citas internally branches by message count to ramp from conservative
+    (nascent) → familiar (warming) → relaxed (established).
+
+    Args:
+        active_mode: One of "professional", "friends", "dating".
+        mode_message_count: Lifetime user messages in this mode. Only used
+            by dating-mode for ramp selection; ignored otherwise.
+
+    Returns:
+        A formatted block, or a friends fallback for unknown modes.
+    """
+    if active_mode == "professional":
+        return _MODE_PROFESIONAL
+    if active_mode == "dating":
+        if mode_message_count < 30:
+            return _MODE_CITAS_NASCENT
+        if mode_message_count < 150:
+            return _MODE_CITAS_WARMING
+        return _MODE_CITAS_ESTABLISHED
+    # friends + any unknown value falls through to the relaxed default.
+    return _MODE_AMIGOS
+
+
 def _build_persona_section(persona_insights: list[str] | None) -> str:
     """Build the avatar's own evolving persona section for the system prompt.
 
@@ -312,6 +401,8 @@ def build_avatar_system_prompt(
     country: str | None = None,
     formality_level: float | None = None,
     custom_expressions: list[str] | None = None,
+    active_mode: str = "friends",
+    mode_message_count: int = 0,
 ) -> str:
     """Build the full avatar system prompt from user profile and context.
 
@@ -362,6 +453,10 @@ def build_avatar_system_prompt(
         formality_level=formality_level,
         custom_expressions=custom_expressions,
     )
+    mode_section = _build_mode_section(
+        active_mode=active_mode,
+        mode_message_count=mode_message_count,
+    )
     datetime_str = current_datetime or ""
 
     try:
@@ -378,6 +473,7 @@ def build_avatar_system_prompt(
             knowledge_level=knowledge_level,
             current_datetime=datetime_str,
             language_style_section=language_style_section,
+            mode_section=mode_section,
         )
     except KeyError as exc:
         logger.error("Failed to format avatar system prompt: missing key %s", exc)

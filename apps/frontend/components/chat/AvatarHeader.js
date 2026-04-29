@@ -10,7 +10,13 @@ import { Ionicons } from '@expo/vector-icons';
 
 import AvatarFace from '../avatar/AvatarFace';
 import Text from '../ui/Text';
-import { colors, spacing } from '../../theme';
+import { colors, spacing, borders } from '../../theme';
+
+const MODE_LABELS = {
+  professional: 'Profesional',
+  friends:      'Amigos',
+  dating:       'Citas',
+};
 
 function AvatarHeader({
   avatarName = 'Avatar',
@@ -20,6 +26,7 @@ function AvatarHeader({
   onBack,
   leftAction,
   rightActions,
+  onModeChipPress,
 }) {
   const statusText =
     avatarState === 'thinking'
@@ -31,6 +38,7 @@ function AvatarHeader({
           : 'Desconectado';
 
   const appearance = avatar?.appearance || {};
+  const modeLabel = MODE_LABELS[avatar?.active_mode] || null;
 
   return (
     <View style={styles.container} accessibilityRole="header">
@@ -67,6 +75,20 @@ function AvatarHeader({
         </Text>
       </View>
 
+      {modeLabel ? (
+        <Pressable
+          onPress={onModeChipPress}
+          style={styles.modeChip}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          accessibilityRole="button"
+          accessibilityLabel={`Modo activo: ${modeLabel}. Tocar para cambiar.`}
+        >
+          <Text variant="caption" color={colors.primary} style={styles.modeChipText}>
+            {modeLabel}
+          </Text>
+        </Pressable>
+      ) : null}
+
       {rightActions ? <View style={styles.actions}>{rightActions}</View> : null}
     </View>
   );
@@ -96,6 +118,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.xs,
   },
+  modeChip: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: borders.radius.full,
+    borderWidth: borders.width.thin,
+    borderColor: colors.primary,
+    backgroundColor: 'rgba(0, 212, 170, 0.08)',
+  },
+  modeChipText: { fontWeight: '600', fontSize: 11 },
 });
 
 export default memo(AvatarHeader);

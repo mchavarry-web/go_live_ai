@@ -303,6 +303,7 @@ export default function ChatScreen({ route, navigation }) {
         avatarName={avatarName}
         avatar={user?.avatar}
         avatarState={avatarState}
+        onModeChipPress={() => navigation.navigate('ProfileTab', { screen: 'ProfileHome' })}
         leftAction={
           <Pressable
             onPress={() => setIsDrawerOpen(true)}

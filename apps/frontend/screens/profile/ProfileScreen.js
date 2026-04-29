@@ -33,6 +33,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import AvatarFace from '../../components/avatar/AvatarFace';
+import ModeSwitcher from '../../components/avatar/ModeSwitcher';
 import { colors, spacing, borders, typography } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import apiService from '../../services/apiService';
@@ -290,6 +291,10 @@ export default function ProfileScreen({ navigation }) {
             Avatar de {ownerName}
           </Text>
           <KnowledgeBar level={knowledgeLevel} />
+          <ModeSwitcher
+            activeMode={avatar?.active_mode || 'friends'}
+            onChange={() => refreshUserData()}
+          />
         </View>
 
         {/* Mi Huella Digital — insights grouped by source */}

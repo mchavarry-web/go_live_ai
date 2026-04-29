@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_28_000004) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_29_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -61,6 +61,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_28_000004) do
   end
 
   create_table "avatars", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "active_mode", default: "friends", null: false
     t.jsonb "appearance", default: {}, null: false
     t.jsonb "behavior", default: {}, null: false
     t.integer "conversations_count", default: 0, null: false
@@ -69,10 +70,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_28_000004) do
     t.integer "insights_count", default: 0, null: false
     t.datetime "last_interaction_at"
     t.integer "messages_count", default: 0, null: false
+    t.jsonb "mode_message_counts", default: {}, null: false
     t.string "name"
     t.integer "social_connections_count", default: 0, null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.index ["active_mode"], name: "index_avatars_on_active_mode"
     t.index ["user_id"], name: "index_avatars_on_user_id", unique: true
   end
 

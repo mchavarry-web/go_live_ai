@@ -172,6 +172,8 @@ class AvatarChain:
             country=user_profile.get("country"),
             formality_level=user_profile.get("formality_level"),
             custom_expressions=user_profile.get("custom_expressions"),
+            active_mode=user_profile.get("active_mode", "friends"),
+            mode_message_count=user_profile.get("mode_message_count", 0),
         )
 
     @traceable(name="avatar_generate", run_type="chain")
