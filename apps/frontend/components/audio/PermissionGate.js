@@ -1,5 +1,5 @@
-// One-shot mic permission UX. Used by VoiceEnrollmentScreen and the
-// RecordingBar's "first start" path. If the user denies permission we
+// One-shot mic permission UX. Used by VoiceEnrollmentScreen as part of
+// the audio-training first-start flow. If the user denies permission we
 // surface a Settings-link prompt rather than silently failing.
 import React, { useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
