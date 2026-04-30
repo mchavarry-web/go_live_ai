@@ -24,6 +24,7 @@ import {
   View,
 } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Text from '../../components/ui/Text';
 import Button from '../../components/ui/Button';
@@ -173,6 +174,7 @@ const sliderStyles = StyleSheet.create({
 
 export default function ConversationalOnboardingScreen({ navigation }) {
   const { refreshUserData } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -616,10 +618,18 @@ export default function ConversationalOnboardingScreen({ navigation }) {
     }
   };
 
+  // Android-only bottom inset so the controls clear the gesture bar /
+  // 3-button nav. iOS keeps the original spacing.lg pad — its layout
+  // was already correct.
+  const androidExtraBottom = Platform.OS === 'android' ? insets.bottom : 0;
+
   return (
     <KeyboardAvoidingView
       style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      // ChatScreen uses 'height' on Android and the input lifts above the
+      // keyboard correctly; onboarding was passing undefined which left
+      // the input buried under the keyboard on Android.
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
     >
       <View style={styles.header}>
@@ -649,7 +659,9 @@ export default function ConversationalOnboardingScreen({ navigation }) {
         }}
       />
 
-      <View style={styles.controlsArea}>{renderStepControls()}</View>
+      <View style={[styles.controlsArea, { paddingBottom: spacing.lg + androidExtraBottom }]}>
+        {renderStepControls()}
+      </View>
     </KeyboardAvoidingView>
   );
 }

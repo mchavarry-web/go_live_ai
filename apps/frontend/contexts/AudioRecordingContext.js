@@ -29,6 +29,7 @@ import {
 
 import apiService from '../services/apiService';
 import audioUploader from '../services/audioUploader';
+import { useAuth } from './AuthContext';
 
 const CHUNK_MINUTES = 5;
 const CHUNK_MS = CHUNK_MINUTES * 60 * 1000;
@@ -42,6 +43,7 @@ export function useAudioRecording() {
 }
 
 export function AudioRecordingProvider({ children }) {
+  const { isAuthenticated } = useAuth();
   const [status, setStatus] = useState('idle'); // idle | ready | recording | paused
   const [session, setSession] = useState(null); // { id, startedAt, sequenceNumber }
   const [enrollment, setEnrollment] = useState(null);
@@ -55,7 +57,15 @@ export function AudioRecordingProvider({ children }) {
   const rotationTimerRef = useRef(null);
 
   // ── boot: load uploader queue + enrollment + start auto-drain ───────
+  // Gated on auth: hitting /audio/voice_enrollment without a JWT triggers
+  // apiService's auto-logout path and surfaces a spurious "invalid token"
+  // error on the very first launch.
   useEffect(() => {
+    if (!isAuthenticated) {
+      setEnrollment(null);
+      setStatus('idle');
+      return undefined;
+    }
     audioUploader.load().then(() => {
       setPendingUploads(audioUploader.pendingCount());
     });
@@ -67,7 +77,7 @@ export function AudioRecordingProvider({ children }) {
       audioUploader.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isAuthenticated]);
 
   const refreshEnrollment = useCallback(async () => {
     const res = await apiService.getVoiceEnrollment();
