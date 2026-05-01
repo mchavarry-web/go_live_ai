@@ -102,11 +102,11 @@ export default function MainTabs() {
   // Honor the bottom safe-area inset so the tab bar clears the iOS home
   // indicator (~34dp) and Android's gesture bar / 3-button nav (~0–48dp).
   // Hard-coding paddingBottom — as we used to — buried the labels under
-  // Android's nav. The floor only kicks in on Android (iOS inset > 14
-  // always); we bumped it from 8 → 14 so labels have visible breathing
-  // room on Android phones with a gesture-handle nav (inset ~0).
+  // Android's nav. The floor only kicks in on Android (iOS inset > 24
+  // always); the floor value was tuned by eyeball on a Samsung gesture
+  // nav phone — anything lower clipped the labels.
   const insets = useSafeAreaInsets();
-  const bottomPad = Math.max(insets.bottom, 14);
+  const bottomPad = Math.max(insets.bottom, 24);
 
   return (
     <Tab.Navigator

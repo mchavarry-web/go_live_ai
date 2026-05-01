@@ -16,6 +16,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -106,6 +107,18 @@ export default function ChatScreen({ route, navigation }) {
   // effect — that would cancel the in-flight listConversations / create call
   // via the cleanup function and silently leave `conversationId` null.
   const creatingConvRef = useRef(false);
+  // 30s response watchdog. Started when a message POST succeeds; cleared
+  // by the first delta / final message / done / error from cable. Without
+  // it a stuck job (LLM hang, dropped websocket, FastAPI timeout) leaves
+  // the spinner spinning forever and the user can't retry.
+  const responseTimerRef = useRef(null);
+  const RESPONSE_TIMEOUT_MS = 30_000;
+  const clearResponseTimer = useCallback(() => {
+    if (responseTimerRef.current) {
+      clearTimeout(responseTimerRef.current);
+      responseTimerRef.current = null;
+    }
+  }, []);
 
   const avatarName = user?.avatar?.name || 'tu avatar';
 
@@ -190,14 +203,20 @@ export default function ChatScreen({ route, navigation }) {
     channel
       .on('delta', ({ content }) => {
         if (!mounted) return;
+        // First token: tokens are flowing, drop the watchdog. A mid-stream
+        // stall after this point will surface as a websocket close, not a
+        // 30s timeout (avoids nuking partial output the user is reading).
+        clearResponseTimer();
         setStreaming(true);
         setStreamBuffer((b) => b + (content || ''));
       })
       .on('message', ({ message }) => {
         if (!mounted || !message) return;
+        clearResponseTimer();
         setStreaming(false);
         setStreamBuffer('');
         setIsSending(false);
+        setLastFailedMessage(null);
         setMessages((prev) => {
           if (prev.some((m) => m.id === message.id)) return prev;
           return [...prev, message];
@@ -205,12 +224,14 @@ export default function ChatScreen({ route, navigation }) {
       })
       .on('done', () => {
         if (!mounted) return;
+        clearResponseTimer();
         setStreaming(false);
         setStreamBuffer('');
         setIsSending(false);
       })
       .on('error', ({ message }) => {
         if (!mounted) return;
+        clearResponseTimer();
         setStreaming(false);
         setStreamBuffer('');
         setIsSending(false);
@@ -219,13 +240,25 @@ export default function ChatScreen({ route, navigation }) {
 
     channel.connect();
 
+    // Foregrounding the app: kick the channel so it doesn't have to wait
+    // for the next exponential-backoff slot. The OS often closes the
+    // socket while the app is suspended; without this, users coming back
+    // from lock would see a stale "websocket error" until the next retry.
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        channel.forceReconnect();
+      }
+    });
+
     return () => {
       console.log('[chat-effect] cable cleanup conv=', conversationId);
       mounted = false;
+      clearResponseTimer();
+      appStateSub.remove();
       channel.disconnect();
       channelRef.current = null;
     };
-  }, [conversationId]);
+  }, [conversationId, clearResponseTimer]);
 
   // Auto-scroll on any change
   useEffect(() => {
@@ -240,7 +273,10 @@ export default function ChatScreen({ route, navigation }) {
         return;
       }
       setError('');
-      setLastFailedMessage(null);
+      // Remember the content while the response is in flight so a 30s
+      // timeout / cable error can offer the user a retry. Cleared when
+      // the assistant message lands.
+      setLastFailedMessage(content);
       setIsSending(true);
       // Optimistic user message
       const optimistic = {
@@ -254,7 +290,6 @@ export default function ChatScreen({ route, navigation }) {
       if (!success) {
         setIsSending(false);
         setError(err || 'No se pudo enviar el mensaje. Verifica tu conexión.');
-        setLastFailedMessage(content);
         // Roll back the optimistic message so the user sees the failure clearly
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
         return;
@@ -263,9 +298,18 @@ export default function ChatScreen({ route, navigation }) {
       if (persisted?.id) {
         setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? persisted : m)));
       }
-      // Assistant reply arrives over Cable
+      // Assistant reply arrives over Cable. Start the 30s watchdog so a
+      // never-arriving response can't strand the spinner.
+      clearResponseTimer();
+      responseTimerRef.current = setTimeout(() => {
+        responseTimerRef.current = null;
+        setStreaming(false);
+        setStreamBuffer('');
+        setIsSending(false);
+        setError('La respuesta tardó demasiado. Toca Reintentar.');
+      }, RESPONSE_TIMEOUT_MS);
     },
-    [conversationId],
+    [conversationId, clearResponseTimer],
   );
 
   const handleRetry = useCallback(() => {
@@ -326,7 +370,9 @@ export default function ChatScreen({ route, navigation }) {
           ref={listRef}
           data={messages}
           keyExtractor={(it) => String(it.id)}
-          renderItem={({ item }) => <MessageBubble message={item} />}
+          renderItem={({ item }) => (
+            <MessageBubble message={item} isTester={!!user?.is_tester} />
+          )}
           contentContainerStyle={[
             styles.messagesList,
             messages.length === 0 && styles.messagesListEmpty,

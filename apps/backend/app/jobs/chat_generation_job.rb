@@ -10,24 +10,52 @@
 #   5. Broadcast { type: "message", message: {...} } + { type: "done", ... }.
 #
 # Errors are reported as { type: "error", message: ... } on the same channel.
+#
+# Roundtrip telemetry: every assistant Message persists a `metadata.telemetry`
+# blob with hop-by-hop timestamps so testers can spot slowdowns. Even on
+# failure (empty stream, exception, upstream timeout) we still write
+# whatever timestamps we have — partial logs are useful for triage.
 class ChatGenerationJob < ApplicationJob
   queue_as :default
 
-  def perform(conversation_id:, user_message_id:)
+  def perform(conversation_id:, user_message_id:, client_sent_at: nil, api_received_at: nil)
     conversation = Conversation.find(conversation_id)
     user_message = Message.find(user_message_id)
     user         = conversation.user
     stream_name  = ChatChannel.stream_name_for(conversation.id)
 
+    telemetry = {
+      "client_sent_at"     => client_sent_at,
+      "api_received_at"    => api_received_at,
+      "api_to_ai_sent_at"  => Time.current.iso8601(3)
+    }.compact
+
     payload = build_payload(conversation, user_message, user)
     accumulated = +""
     chunk_count = 0
 
-    AiAgentsClient.new.stream_chat(payload) do |chunk|
-      next if chunk.blank?
-      chunk_count += 1
-      accumulated << chunk
-      ActionCable.server.broadcast(stream_name, { type: "delta", content: chunk })
+    begin
+      stream_result = AiAgentsClient.new.stream_chat(payload) do |chunk|
+        next if chunk.blank?
+        chunk_count += 1
+        accumulated << chunk
+        ActionCable.server.broadcast(stream_name, { type: "delta", content: chunk })
+      end
+      if stream_result.is_a?(Hash) && stream_result[:telemetry].is_a?(Hash)
+        telemetry.merge!(stream_result[:telemetry])
+      end
+    rescue StandardError => e
+      telemetry["api_to_app_done_at"] = Time.current.iso8601(3)
+      telemetry["status"] = "error"
+      telemetry["error"]  = "#{e.class}: #{e.message}"
+      persist_assistant_failure(
+        conversation:   conversation,
+        stream_name:    stream_name,
+        telemetry:      telemetry,
+        public_message: "Error generating response. Please retry."
+      )
+      Rails.logger.error("ChatGenerationJob failed: #{e.class}: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
+      return
     end
 
     Rails.logger.info(
@@ -36,13 +64,16 @@ class ChatGenerationJob < ApplicationJob
     )
 
     if accumulated.strip.empty?
-      # FastAPI returned no text (e.g. missing LLM key, upstream error).
-      # Persist a placeholder so the conversation stays consistent, and
-      # surface the failure on the channel.
+      telemetry["api_to_app_done_at"] = Time.current.iso8601(3)
+      telemetry["status"] = "empty"
       assistant = conversation.messages.create!(
         role: "assistant",
         content: "⚠️ The avatar couldn't respond right now. Please try again.",
-        metadata: { generated_by: "chat_generation_job", status: "empty_stream" }
+        metadata: {
+          "generated_by" => "chat_generation_job",
+          "status"       => "empty_stream",
+          "telemetry"    => telemetry
+        }
       )
       ActionCable.server.broadcast(stream_name, {
         type: "error",
@@ -52,10 +83,17 @@ class ChatGenerationJob < ApplicationJob
       return
     end
 
+    telemetry["api_to_app_done_at"] = Time.current.iso8601(3)
+    telemetry["status"] = "ok"
+
     assistant = conversation.messages.create!(
       role: "assistant",
       content: accumulated,
-      metadata: { generated_by: "chat_generation_job", status: "ok" }
+      metadata: {
+        "generated_by" => "chat_generation_job",
+        "status"       => "ok",
+        "telemetry"    => telemetry
+      }
     )
     ActionCable.server.broadcast(stream_name, {
       type: "message",
@@ -65,14 +103,6 @@ class ChatGenerationJob < ApplicationJob
       type: "done",
       assistant_message_id: assistant.id
     })
-  rescue StandardError => e
-    Rails.logger.error("ChatGenerationJob failed: #{e.class}: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
-    ActionCable.server.broadcast(stream_name, {
-      type: "error",
-      message: "Error generating response. Please retry."
-    }) if defined?(stream_name) && stream_name
-    # don't re-raise — we've already surfaced the error to the client and
-    # retrying with the same params will just hit the same upstream failure.
   end
 
   private
@@ -109,7 +139,28 @@ class ChatGenerationJob < ApplicationJob
       id:         message.id,
       role:       message.role,
       content:    message.content,
+      metadata:   message.metadata,
       created_at: message.created_at.iso8601
     }
+  end
+
+  def persist_assistant_failure(conversation:, stream_name:, telemetry:, public_message:)
+    assistant = conversation.messages.create!(
+      role:    "assistant",
+      content: "⚠️ #{public_message}",
+      metadata: {
+        "generated_by" => "chat_generation_job",
+        "status"       => "error",
+        "telemetry"    => telemetry
+      }
+    )
+    ActionCable.server.broadcast(stream_name, {
+      type: "error",
+      message: public_message,
+      assistant_message_id: assistant.id
+    })
+  rescue StandardError => e
+    Rails.logger.error("ChatGenerationJob: failed to persist failure record — #{e.class}: #{e.message}")
+    ActionCable.server.broadcast(stream_name, { type: "error", message: public_message })
   end
 end

@@ -4,8 +4,9 @@
       <div class="flex">
         <!-- Logo -->
         <div class="flex-shrink-0 flex items-center">
-          <%= link_to admin_root_path, class: "text-white text-2xl font-bold" do %>
-            MiSOS
+          <%= link_to admin_root_path, class: "flex items-center", aria: { label: "Go Live — inicio" } do %>
+            <%= image_tag "go_live_logo.png", alt: "Go Live", class: "h-10 w-10 rounded-md object-cover" %>
+            <span class="ml-2 text-white text-xl font-bold tracking-tight">Go Live</span>
           <% end %>
         </div>
 

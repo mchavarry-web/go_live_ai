@@ -6,16 +6,21 @@ if (process.env.EAS_BUILD !== 'true') {
 
 export default {
   expo: {
-    name: 'Go Life',
+    name: 'Go Live',
     slug: 'go-live',
     version: '1.0.0',
     orientation: 'portrait',
     userInterfaceStyle: 'dark',
     // First-class platform support: iOS, Android, and web.
     platforms: ['ios', 'android', 'web'],
+    // Top-level icon is the iOS source-of-truth (and Android fallback when
+    // adaptive-icon is not configured). 1024×1024 PNG, no transparency —
+    // EAS resizes for every platform target on build.
+    icon: './assets/icon.png',
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.devtechperu.golive',
+      icon: './assets/icon.png',
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
         NSMicrophoneUsageDescription:
@@ -27,6 +32,13 @@ export default {
       edgeToEdgeEnabled: true,
       softwareKeyboardLayoutMode: 'resize',
       permissions: ['RECORD_AUDIO'],
+      // Adaptive icon: the foreground sits on top of `backgroundColor`.
+      // We re-use the full square logo as the foreground; on launchers
+      // that mask to circle/squircle the bleed is cropped.
+      adaptiveIcon: {
+        foregroundImage: './assets/adaptive-icon.png',
+        backgroundColor: '#0A0A0F',
+      },
     },
     plugins: [
       // expo-audio registers an iOS NSMicrophoneUsageDescription via its
@@ -37,6 +49,16 @@ export default {
       // Without this, SafeAreaView under-pads at top and the tab bar
       // ignores the Android nav bar at bottom.
       'react-native-edge-to-edge',
+      // Splash screen: image rendered centered on the dark background that
+      // matches the app theme (#0A0A0F) so the brand-coloured logo pops.
+      [
+        'expo-splash-screen',
+        {
+          image: './assets/splash-icon.png',
+          backgroundColor: '#0A0A0F',
+          imageWidth: 240,
+        },
+      ],
     ],
     web: {
       bundler: 'metro',

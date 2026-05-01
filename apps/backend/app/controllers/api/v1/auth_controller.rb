@@ -116,6 +116,7 @@ class Api::V1::AuthController < Api::V1::BaseController
       onboarding_completed_at:   user.onboarding_completed_at,
       provider:   user.provider,
       role:       user.role,
+      is_tester:  user.is_tester,
       avatar:     avatar ? avatar_json(avatar) : nil,
       # Flat aliases retained for backwards compatibility with older clients.
       knowledge_level: avatar&.knowledge_level || 1,

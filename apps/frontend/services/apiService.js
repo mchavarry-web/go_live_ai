@@ -196,9 +196,12 @@ class ApiService {
   }
 
   async postMessage(conversationId, content) {
+    // Stamp the moment the client clicked Send so the backend can log
+    // app→API latency on the assistant message metadata.telemetry.
+    const clientSentAt = new Date().toISOString();
     return this.request(`/chat/conversations/${conversationId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, client_sent_at: clientSentAt }),
     });
   }
 

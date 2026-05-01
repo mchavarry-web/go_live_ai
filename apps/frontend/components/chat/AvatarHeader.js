@@ -5,7 +5,7 @@
 // The original mobile app put those controls outside the header; we keep
 // them here because the rest of the screen layout is simpler this way.
 import React, { memo } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import AvatarFace from '../avatar/AvatarFace';
@@ -100,7 +100,12 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.xxs,
+    // Android draws under a translucent status bar; the SafeAreaView in
+    // ChatScreen pads by exactly the inset, leaving the avatar circle
+    // hugging the bar. Add 10dp of breathing room on Android only —
+    // iOS already had enough space.
+    paddingTop: spacing.xxs + (Platform.OS === 'android' ? 10 : 0),
+    paddingBottom: spacing.xxs,
     paddingHorizontal: spacing.md,
     gap: spacing.sm,
     backgroundColor: colors.background,

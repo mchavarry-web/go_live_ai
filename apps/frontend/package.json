@@ -29,6 +29,7 @@
     "expo-file-system": "~19.0.22",
     "expo-linking": "~8.0.8",
     "expo-location": "~19.0.8",
+    "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "~15.0.10",
     "prop-types": "^15.8.1",

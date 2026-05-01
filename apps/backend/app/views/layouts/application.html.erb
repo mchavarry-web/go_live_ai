@@ -1,11 +1,22 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title><%= content_for(:title) || "Panic Button" %></title>
+    <title><%= content_for(:title) || "Go Live" %></title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="application-name" content="Panic Button">
-    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="Go Live">
+    <meta name="description" content="Go Live — tu yo digital, en tiempo real.">
+
+    <!-- Open Graph / social preview -->
+    <meta property="og:title" content="<%= content_for(:title) || 'Go Live' %>">
+    <meta property="og:description" content="Go Live — tu yo digital, en tiempo real.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="<%= request.base_url %>/icon.png">
+    <meta property="og:image:width" content="512">
+    <meta property="og:image:height" content="512">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:image" content="<%= request.base_url %>/icon.png">
+
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
 
@@ -15,7 +26,6 @@
     <%#= tag.link rel: "manifest", href: pwa_manifest_path(format: :json) %>
 
     <link rel="icon" href="/icon.png" type="image/png">
-    <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon.png">
 
     <%# Includes all stylesheet files in app/assets/stylesheets %>

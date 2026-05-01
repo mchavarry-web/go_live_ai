@@ -10,9 +10,22 @@ import platformConfig from '../utils/platformConfig';
 //   { type: 'message', message: { id, role, content, created_at } }
 //   { type: 'done',    assistant_message_id }
 //   { type: 'error',   message: 'human-readable error' }
+//
+// Reconnect policy:
+//   - Transport errors (onerror / unexpected onclose) DO NOT bubble to the
+//     UI. They schedule a reconnect with exponential backoff so the user
+//     never sees a "websocket error" banner just because the OS killed
+//     the socket while the app was backgrounded.
+//   - Only `reject_subscription` (auth failure) and explicit server-emitted
+//     `{ type: 'error' }` envelopes reach the `error` handler.
+//   - `forceReconnect()` is exposed for the screen to call when the app
+//     foregrounds, so we don't have to wait for the current backoff slot.
 
 const IDENTIFIER = (conversationId) =>
   JSON.stringify({ channel: 'ChatChannel', conversation_id: conversationId });
+
+const MAX_BACKOFF_MS = 30_000;
+const BASE_BACKOFF_MS = 1_000;
 
 export class ChatChannel {
   constructor(conversationId) {
@@ -20,6 +33,9 @@ export class ChatChannel {
     this.ws = null;
     this.handlers = { delta: null, message: null, done: null, error: null };
     this.identifier = IDENTIFIER(conversationId);
+    this.intentionallyClosed = false;
+    this.reconnectAttempts = 0;
+    this.reconnectTimer = null;
   }
 
   on(event, fn) {
@@ -28,18 +44,35 @@ export class ChatChannel {
   }
 
   async connect() {
+    this.intentionallyClosed = false;
+    this._clearReconnectTimer();
+
     const token = await AsyncStorage.getItem('access_token');
     const base = platformConfig.getCableUrl();
     const url = `${base}?token=${encodeURIComponent(token || '')}`;
     console.log('[chat-cable] connecting to', base, 'conv=', this.conversationId);
-    this.ws = new WebSocket(url);
 
-    this.ws.onopen = () => {
+    let ws;
+    try {
+      ws = new WebSocket(url);
+    } catch (e) {
+      console.warn('[chat-cable] failed to construct WebSocket', e?.message);
+      this._scheduleReconnect();
+      return;
+    }
+    this.ws = ws;
+
+    ws.onopen = () => {
       console.log('[chat-cable] open → subscribe', this.conversationId);
-      this.ws.send(JSON.stringify({ command: 'subscribe', identifier: this.identifier }));
+      this.reconnectAttempts = 0;
+      try {
+        ws.send(JSON.stringify({ command: 'subscribe', identifier: this.identifier }));
+      } catch (e) {
+        console.warn('[chat-cable] subscribe send failed', e?.message);
+      }
     };
 
-    this.ws.onmessage = (event) => {
+    ws.onmessage = (event) => {
       let payload;
       try {
         payload = JSON.parse(event.data);
@@ -55,6 +88,7 @@ export class ChatChannel {
       }
       if (payload.type === 'reject_subscription') {
         console.warn('[chat-cable] subscription rejected');
+        // Auth-level failure — surface to the UI so the user can re-login.
         this.handlers.error?.({ message: 'subscription rejected' });
         return;
       }
@@ -66,23 +100,70 @@ export class ChatChannel {
       else console.warn('[chat-cable] no handler for', body.type);
     };
 
-    this.ws.onerror = (err) => {
-      console.warn('[chat-cable] error', err?.message);
-      this.handlers.error?.({ message: err?.message || 'websocket error' });
+    ws.onerror = (err) => {
+      // Transport-level errors are noisy and almost always followed by
+      // onclose. Log but don't surface — onclose will schedule the
+      // reconnect.
+      console.warn('[chat-cable] transport error', err?.message);
     };
 
-    this.ws.onclose = (e) => {
+    ws.onclose = (e) => {
       console.log('[chat-cable] close code=', e?.code, 'reason=', e?.reason, 'clean=', e?.wasClean);
-      // caller can reconnect by instantiating a new ChatChannel
+      this.ws = null;
+      if (!this.intentionallyClosed) {
+        this._scheduleReconnect();
+      }
     };
   }
 
+  forceReconnect() {
+    if (this.intentionallyClosed) return;
+    // Skip the backoff and try immediately. If the socket is open, leave
+    // it alone; if it's down, kick a fresh connect.
+    if (this.ws && this.ws.readyState === 1 /* OPEN */) return;
+    this._clearReconnectTimer();
+    this.reconnectAttempts = 0;
+    this.connect();
+  }
+
+  _scheduleReconnect() {
+    if (this.intentionallyClosed) return;
+    if (this.reconnectTimer) return;
+    const delay = Math.min(
+      BASE_BACKOFF_MS * 2 ** this.reconnectAttempts,
+      MAX_BACKOFF_MS,
+    );
+    this.reconnectAttempts += 1;
+    console.log(
+      '[chat-cable] reconnect in',
+      delay,
+      'ms (attempt',
+      this.reconnectAttempts,
+      ')',
+    );
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
+  }
+
+  _clearReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
   disconnect() {
+    this.intentionallyClosed = true;
+    this._clearReconnectTimer();
     if (!this.ws) return;
     try {
       this.ws.send(JSON.stringify({ command: 'unsubscribe', identifier: this.identifier }));
     } catch {}
-    this.ws.close();
+    try {
+      this.ws.close();
+    } catch {}
     this.ws = null;
   }
 }

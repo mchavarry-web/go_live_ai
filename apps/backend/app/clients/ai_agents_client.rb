@@ -25,8 +25,28 @@ class AiAgentsClient
   # Streams /internal/chat/stream. FastAPI emits SSE-framed text chunks
   # ("data: <json>\n\n"). We yield the *plain text* content of each chunk so
   # the caller (ChatGenerationJob) can broadcast it directly over ActionCable.
+  #
+  # Returns a hash with any out-of-band data captured during the stream:
+  #   { telemetry: { ai_received_at:, ai_first_token_at:, ai_last_token_at:, ai_to_api_done_at: } | nil }
+  # FastAPI emits a final telemetry frame (kind=:telemetry) right before
+  # [DONE] so the caller can stitch it together with its own timestamps.
   def stream_chat(payload, &block)
     buffer = +""
+    telemetry = nil
+    flush = lambda do |frame|
+      result = parse_sse_frame(frame)
+      case result
+      when ::String
+        yield result if !result.empty?
+      when ::Hash
+        case result[:kind]
+        when :token
+          yield result[:text] if result[:text] && !result[:text].empty?
+        when :telemetry
+          telemetry = result[:data]
+        end
+      end
+    end
     self.class.post(
       "/internal/chat/stream",
       body: payload.to_json,
@@ -37,15 +57,12 @@ class AiAgentsClient
       buffer << raw_chunk
       while (idx = buffer.index("\n\n"))
         frame = buffer.slice!(0, idx + 2)
-        content = parse_sse_frame(frame)
-        yield content if content && !content.empty?
+        flush.call(frame)
       end
     end
     # flush trailing line if server did not terminate with \n\n
-    unless buffer.empty?
-      content = parse_sse_frame(buffer)
-      yield content if content && !content.empty?
-    end
+    flush.call(buffer) unless buffer.empty?
+    { telemetry: telemetry }
   end
 
   def generate_proactive(payload)
@@ -140,11 +157,15 @@ class AiAgentsClient
   private
 
   # FastAPI emits SSE frames of the form:
-  #   data: {"token": "<text>"}\n
-  #   \n
-  # …with a final terminator frame "data: [DONE]\n\n". Some legacy frames may
-  # still be plain text. We return the unwrapped *text* so callers can append
-  # it directly to the accumulated assistant reply.
+  #   data: {"token": "<text>"}\n\n         → token chunk
+  #   data: {"telemetry": {...}}\n\n         → final hop-timestamps payload
+  #   data: {"error": "..."}\n\n             → upstream error
+  #   data: [DONE]\n\n                       → end-of-stream sentinel
+  # Return value:
+  #   String "" (empty/done/error frames — caller skips)
+  #   String "..." (legacy plain-text frames — content)
+  #   Hash { kind: :token,     text: "..." }
+  #   Hash { kind: :telemetry, data: {...}  }
   def parse_sse_frame(frame)
     payload = frame
       .split("\n")
@@ -158,8 +179,8 @@ class AiAgentsClient
       rescue JSON::ParserError
         return payload
       end
-      # Token frames: { "token": "..." }; error frames: { "error": "..." }.
-      return parsed["token"].to_s if parsed.key?("token")
+      return { kind: :telemetry, data: parsed["telemetry"] } if parsed.key?("telemetry")
+      return { kind: :token,     text: parsed["token"].to_s } if parsed.key?("token")
       return "" if parsed.key?("error")  # caller should not append errors
       return ""
     end

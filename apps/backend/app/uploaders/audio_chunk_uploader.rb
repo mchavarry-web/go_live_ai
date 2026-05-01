@@ -4,6 +4,12 @@
 # 25MB cap matches OpenAI's transcription API limit; AAC/m4a is the default
 # encoding from expo-audio. Cap is generous enough to absorb misconfigured
 # clients that emit larger m4a; smaller files are fine.
+#
+# Allowed types include video/mp4 + video/3gpp because expo-audio on Android
+# writes audio-only MPEG-4 containers that Marcel sometimes sniffs as a
+# video MIME type (the magic bytes don't reliably distinguish audio-only
+# from video MP4). The file is still pure audio in every case — we route
+# it through the same transcription pipeline regardless of the label.
 class AudioChunkUploader < Shrine
   storages[:store] = Shrine.storages[:store_private]
 
@@ -20,6 +26,9 @@ class AudioChunkUploader < Shrine
       audio/mpeg
       audio/wav
       audio/x-wav
+      video/mp4
+      video/3gpp
+      audio/3gpp
     ]
   end
 end

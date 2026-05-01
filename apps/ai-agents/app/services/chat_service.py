@@ -789,6 +789,17 @@ class ChatService:
             SSE-formatted strings: ``data: {"token": "..."}\\n\\n``
             and a final ``data: [DONE]\\n\\n``.
         """
+        # Hop-by-hop telemetry — emitted as the penultimate SSE frame so
+        # Rails can stitch it into the assistant Message metadata. Even on
+        # exception we still emit what we have (Rails persists partial logs
+        # so testers can spot which leg of the trip stalled).
+        from datetime import datetime, timezone
+
+        def _now_iso() -> str:
+            return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+        ai_received_at = _now_iso()
+
         # Retrieve memory context
         mem = await _gather_memory(
             self,
@@ -813,12 +824,15 @@ class ChatService:
         )
 
         streamed_tokens: list[str] = []
+        ai_first_token_at: Optional[str] = None
         try:
             async for token in self.avatar_chain.generate_stream(
                 message=request.message,
                 user_profile=user_profile,
                 conversation_history=request.conversation_history or None,
             ):
+                if ai_first_token_at is None and token:
+                    ai_first_token_at = _now_iso()
                 streamed_tokens.append(token)
                 yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
         except Exception:
@@ -831,6 +845,17 @@ class ChatService:
                 {"error": "Stream generation failed"}, ensure_ascii=False
             )
             yield f"data: {error_payload}\n\n"
+
+        ai_last_token_at = _now_iso()
+        ai_to_api_done_at = _now_iso()
+
+        telemetry = {
+            "ai_received_at":     ai_received_at,
+            "ai_first_token_at":  ai_first_token_at,
+            "ai_last_token_at":   ai_last_token_at,
+            "ai_to_api_done_at":  ai_to_api_done_at,
+        }
+        yield f"data: {json.dumps({'telemetry': telemetry}, ensure_ascii=False)}\n\n"
 
         # Schedule post-turn memory work as a true background task with its
         # own DB session, then yield [DONE] and return immediately so Rails'
