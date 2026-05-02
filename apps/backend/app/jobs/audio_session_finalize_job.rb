@@ -6,10 +6,25 @@ class AudioSessionFinalizeJob < ApplicationJob
 
   def perform(session_id:)
     session = AudioSession.find_by(id: session_id)
-    return unless session
-    return if session.terminal?
+    unless session
+      Rails.logger.warn("[audio-finalize] session not found session=#{session_id}")
+      return
+    end
+    if session.terminal?
+      Rails.logger.info("[audio-finalize] already terminal session=#{session.id} status=#{session.status}")
+      return
+    end
+
+    counts = session.audio_chunks.reorder(nil).group(:transcription_status).count
+    Rails.logger.info(
+      "[audio-finalize] start session=#{session.id} prior_status=#{session.status} chunks=#{counts.inspect}"
+    )
 
     session.finalize_outcome!
-    Rails.logger.info("AudioSession finalized: id=#{session.id} status=#{session.status}")
+
+    Rails.logger.info(
+      "[audio-finalize] done session=#{session.id} new_status=#{session.status} " \
+      "chunks=#{counts.inspect} total_duration=#{session.total_duration_seconds}s"
+    )
   end
 end

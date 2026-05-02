@@ -118,21 +118,48 @@ class AiAgentsClient
     body = { "user_id" => user_id.to_s, "audio" => audio_io }
     body["language"] = language if language.present?
 
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000.0
     response = self.class.post(
       "/internal/audio/transcribe",
       multipart: true,
       body: body,
       timeout: 120
     )
-    response.parsed_response
+    took_ms = Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000.0 - started
+
+    parsed = response.parsed_response
+    Rails.logger.info(
+      "[ai-client] transcribe user=#{user_id} took=#{took_ms.to_i}ms http=#{response.code} " \
+      "body_keys=#{parsed.is_a?(Hash) ? parsed.keys.inspect : parsed.class.name} " \
+      "lang=#{language.inspect}"
+    )
+    if response.code >= 400
+      Rails.logger.warn("[ai-client] transcribe non-2xx body=#{parsed.inspect.first(500)}")
+    end
+    parsed
   end
 
   def extract_audio_insights(user_id:, transcript:, source:, context: "")
-    post_json(
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000.0
+    response = self.class.post(
       "/internal/audio/extract_insights",
-      { user_id: user_id.to_s, transcript: transcript, source: source, context: context },
+      body: { user_id: user_id.to_s, transcript: transcript, source: source, context: context }.to_json,
+      headers: { "Content-Type" => "application/json" },
       timeout: 60
     )
+    took_ms = Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000.0 - started
+
+    parsed = response.parsed_response
+    stored = parsed.is_a?(Hash) ? parsed["stored"] : nil
+    Rails.logger.info(
+      "[ai-client] extract_audio_insights user=#{user_id} source=#{source} " \
+      "took=#{took_ms.to_i}ms http=#{response.code} stored=#{stored.inspect} " \
+      "transcript_chars=#{transcript.length}"
+    )
+    if response.code >= 400
+      Rails.logger.warn("[ai-client] extract_audio_insights non-2xx body=#{parsed.inspect.first(500)}")
+    end
+    parsed
   end
 
   # Bulk delete insights matching a source string. With prefix=true,

@@ -73,14 +73,27 @@ async def transcribe(
     language: Annotated[str | None, Form()] = None,
 ) -> TranscribeResponse:
     """Multipart audio in, transcript out. Stateless."""
+    import time
+
+    t0 = time.perf_counter()
     try:
         raw = await audio.read()
+        logger.info(
+            "audio.transcribe: received user_id=%s filename=%s mime=%s bytes=%d lang=%s",
+            user_id,
+            audio.filename,
+            audio.content_type,
+            len(raw),
+            language,
+        )
         if not raw:
+            logger.warning("audio.transcribe: empty payload user_id=%s", user_id)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Empty audio payload.",
             )
 
+        t_provider = time.perf_counter()
         result = await transcribe_bytes(
             raw,
             settings=settings,
@@ -88,9 +101,19 @@ async def transcribe(
             mime=audio.content_type or "audio/m4a",
             language=language or None,
         )
+        provider_ms = (time.perf_counter() - t_provider) * 1000
+        total_ms = (time.perf_counter() - t0) * 1000
         logger.info(
-            "Transcribed audio: user_id=%s bytes=%d chars=%d segments=%d model=%s",
-            user_id, len(raw), len(result.text), len(result.segments), result.model,
+            "audio.transcribe: done user_id=%s bytes=%d chars=%d segments=%d "
+            "model=%s provider=%s provider_ms=%d total_ms=%d",
+            user_id,
+            len(raw),
+            len(result.text),
+            len(result.segments),
+            result.model,
+            result.provider,
+            int(provider_ms),
+            int(total_ms),
         )
         return TranscribeResponse(
             text=result.text,
@@ -102,10 +125,17 @@ async def transcribe(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("Audio transcription failed: user_id=%s", user_id)
+        total_ms = (time.perf_counter() - t0) * 1000
+        logger.exception(
+            "audio.transcribe: failed user_id=%s after %dms class=%s msg=%s",
+            user_id,
+            int(total_ms),
+            exc.__class__.__name__,
+            str(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Audio transcription failed.",
+            detail=f"Audio transcription failed: {exc.__class__.__name__}",
         ) from exc
 
 
@@ -125,14 +155,32 @@ async def extract_audio_insights(
     session: DbSessionDep,
 ) -> dict[str, object]:
     """Transcript → insights tagged ``source``."""
+    import time
+
+    t0 = time.perf_counter()
+    logger.info(
+        "audio.insights: received user_id=%s source=%s transcript_chars=%d context_chars=%d",
+        request.user_id,
+        request.source,
+        len(request.transcript),
+        len(request.context),
+    )
     try:
         chain = InsightExtractionChain(llm=llm)
+        t_extract = time.perf_counter()
         extracted = await chain.extract(
             message=request.transcript,
             context=request.context,
         )
+        extract_ms = (time.perf_counter() - t_extract) * 1000
 
         if not extracted:
+            logger.info(
+                "audio.insights: no insights produced user_id=%s source=%s extract_ms=%d",
+                request.user_id,
+                request.source,
+                int(extract_ms),
+            )
             return {"insights": [], "stored": 0}
 
         embeddings = get_embeddings(settings)
@@ -143,11 +191,13 @@ async def extract_audio_insights(
             for ins in extracted
         ]
 
+        t_store = time.perf_counter()
         stored = await memory_service.store_insights(
             user_id=request.user_id,
             insights=insight_dicts,
             source=request.source,
         )
+        store_ms = (time.perf_counter() - t_store) * 1000
 
         stored_insights = [
             Insight(
@@ -161,6 +211,18 @@ async def extract_audio_insights(
             )
             for ins in stored
         ]
+        total_ms = (time.perf_counter() - t0) * 1000
+        logger.info(
+            "audio.insights: done user_id=%s source=%s extracted=%d stored=%d "
+            "extract_ms=%d store_ms=%d total_ms=%d",
+            request.user_id,
+            request.source,
+            len(extracted),
+            len(stored),
+            int(extract_ms),
+            int(store_ms),
+            int(total_ms),
+        )
         return {
             "insights": [ins.model_dump() for ins in stored_insights],
             "stored": len(stored),
@@ -168,11 +230,16 @@ async def extract_audio_insights(
         }
 
     except Exception as exc:
+        total_ms = (time.perf_counter() - t0) * 1000
         logger.exception(
-            "Audio insight extraction failed: user_id=%s source=%s",
-            request.user_id, request.source,
+            "audio.insights: failed user_id=%s source=%s after %dms class=%s msg=%s",
+            request.user_id,
+            request.source,
+            int(total_ms),
+            exc.__class__.__name__,
+            str(exc),
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Audio insight extraction failed.",
+            detail=f"Audio insight extraction failed: {exc.__class__.__name__}",
         ) from exc

@@ -105,7 +105,7 @@ class AudioUploader {
     mime = 'audio/m4a',
   }) {
     await this.load();
-    this.queue.push({
+    const entry = {
       idempotencyKey: uuid(),
       sessionId,
       sequenceNumber,
@@ -115,9 +115,18 @@ class AudioUploader {
       mime,
       attempts: 0,
       status: 'pending',
-    });
+    };
+    this.queue.push(entry);
     await this._persist();
     this._emit();
+    console.log(
+      '[audio-up] enqueue session=', sessionId,
+      'seq=', sequenceNumber,
+      'duration=', durationSeconds, 's',
+      'mime=', mime,
+      'queueLen=', this.queue.length,
+      'idempotency=', entry.idempotencyKey,
+    );
     this.drain();
   }
 
@@ -137,8 +146,21 @@ class AudioUploader {
           this.queue.push(this.queue.shift());
           continue;
         }
+        const t0 = Date.now();
+        console.log(
+          '[audio-up] POST session=', head.sessionId,
+          'seq=', head.sequenceNumber,
+          'attempt=', head.attempts + 1, '/', MAX_ATTEMPTS,
+        );
         const result = await apiService.uploadAudioChunk(head);
+        const tookMs = Date.now() - t0;
         if (result.success) {
+          console.log(
+            '[audio-up] OK session=', head.sessionId,
+            'seq=', head.sequenceNumber,
+            'http=', result.status,
+            'took=', tookMs, 'ms',
+          );
           this.queue.shift();
           await this._persist();
           this._emit();
@@ -150,9 +172,19 @@ class AudioUploader {
           }
         } else {
           head.attempts += 1;
-          if (head.attempts >= MAX_ATTEMPTS) head.status = 'failed';
+          const willGiveUp = head.attempts >= MAX_ATTEMPTS;
+          if (willGiveUp) head.status = 'failed';
           await this._persist();
           this._emit();
+          console.warn(
+            '[audio-up]', willGiveUp ? 'DEAD' : 'FAIL',
+            'session=', head.sessionId,
+            'seq=', head.sequenceNumber,
+            'attempt=', head.attempts, '/', MAX_ATTEMPTS,
+            'http=', result.status,
+            'took=', tookMs, 'ms',
+            'reason=', result.error,
+          );
           // Stop draining on failure — likely a transient network issue.
           // We'll retry on the next AppState/NetInfo trigger.
           break;

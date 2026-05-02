@@ -89,8 +89,11 @@ async def _transcribe_openai(
     mime: str,
     language: str | None,
 ) -> Transcription:
+    import time
+
     api_key = settings.openai_api_key.get_secret_value()
     if not api_key:
+        logger.error("audio.openai: OPENAI_API_KEY is not set")
         raise RuntimeError("OPENAI_API_KEY is not set; cannot transcribe.")
 
     model = settings.audio_transcription_model
@@ -102,17 +105,33 @@ async def _transcribe_openai(
     if language:
         extra["language"] = language
 
-    logger.info("Transcribing %d bytes via %s/%s lang=%s", len(audio), "openai", model, language)
-    resp = await client.audio.transcriptions.create(
-        model=model,
-        file=(filename, audio, mime),
-        **extra,
+    logger.info(
+        "audio.openai: → request bytes=%d model=%s mime=%s filename=%s lang=%s",
+        len(audio), model, mime, filename, language,
     )
+    t0 = time.perf_counter()
+    try:
+        resp = await client.audio.transcriptions.create(
+            model=model,
+            file=(filename, audio, mime),
+            **extra,
+        )
+    except Exception as exc:
+        took_ms = (time.perf_counter() - t0) * 1000
+        # Surface OpenAI error details — these usually carry a readable
+        # body explaining why (rate limit, invalid format, key issue).
+        body = getattr(exc, "body", None) or getattr(exc, "response", None)
+        logger.error(
+            "audio.openai: ← FAIL took=%dms class=%s msg=%s body=%s",
+            int(took_ms), exc.__class__.__name__, str(exc), repr(body)[:500],
+        )
+        raise
 
+    took_ms = (time.perf_counter() - t0) * 1000
     text = getattr(resp, "text", "") or ""
-    segments: list[TranscriptionSegment] = []
     resp_lang = getattr(resp, "language", None)
 
+    segments: list[TranscriptionSegment] = []
     if model == "whisper-1":
         raw_segments = getattr(resp, "segments", None) or []
         for s in raw_segments:
@@ -125,6 +144,11 @@ async def _transcribe_openai(
             except Exception:  # noqa: BLE001
                 # tolerate unexpected segment shapes; the text alone is enough
                 continue
+
+    logger.info(
+        "audio.openai: ← OK took=%dms chars=%d segments=%d lang=%s model=%s",
+        int(took_ms), len(text), len(segments), resp_lang or language, model,
+    )
 
     return Transcription(
         text=text,
