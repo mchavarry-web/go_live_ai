@@ -206,7 +206,16 @@ export function AudioRecordingProvider({ children }) {
       setStatus('ready');
       return { success: false };
     }
+    // Final chunk → upload queue → wait for the queue to actually flush
+    // BEFORE telling the server the session is done. Otherwise the finish
+    // endpoint runs the finalize job with zero chunks visible and the
+    // session terminates as "failed" before the last POST even arrives.
     await rotateChunk({ final: true });
+    try {
+      await audioUploader.flush();
+    } catch (err) {
+      console.warn('[audio-rec] flush before finish failed', err);
+    }
     await apiService.finishAudioSession(sess.id);
     sessionRef.current = null;
     setSession(null);

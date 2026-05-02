@@ -32,6 +32,10 @@ class AudioUploader {
   constructor() {
     this.queue = [];
     this.draining = false;
+    // Promise that resolves when the current drain pass finishes — used
+    // by flush() so callers (e.g. stop()) can await an in-flight drain
+    // before finishing the session on the server.
+    this._drainPromise = null;
     this.loaded = false;
     this.subscriptions = [];
     this.listeners = new Set();
@@ -131,8 +135,20 @@ class AudioUploader {
   }
 
   async drain() {
+    // Coalesce concurrent callers — every caller (enqueue, NetInfo,
+    // AppState, flush) awaits the same in-flight pass. Previously we
+    // returned immediately when ``draining`` was true, which meant a
+    // stop()-issued ``await drain()`` could resolve before the upload
+    // it triggered had even started.
+    if (this._drainPromise) return this._drainPromise;
+    this._drainPromise = this._drainOnce().finally(() => {
+      this._drainPromise = null;
+    });
+    return this._drainPromise;
+  }
+
+  async _drainOnce() {
     await this.load();
-    if (this.draining) return;
     if (this.queue.length === 0) return;
 
     this.draining = true;
@@ -170,28 +186,77 @@ class AudioUploader {
           } catch {
             /* noop */
           }
-        } else {
-          head.attempts += 1;
-          const willGiveUp = head.attempts >= MAX_ATTEMPTS;
-          if (willGiveUp) head.status = 'failed';
+          continue;
+        }
+
+        // Non-recoverable: session is no longer active (already finalized
+        // or cancelled server-side). Retrying won't help — drop the entry
+        // immediately so we don't burn 5 attempts of pointless 422s.
+        const sessionGone =
+          result.status === 422 && /session not active|session not found/i.test(result.error || '');
+        if (sessionGone) {
+          console.warn(
+            '[audio-up] DROP session=', head.sessionId,
+            'seq=', head.sequenceNumber,
+            'reason=session-finalized — discarding chunk (will not retry)',
+          );
+          this.queue.shift();
           await this._persist();
           this._emit();
-          console.warn(
-            '[audio-up]', willGiveUp ? 'DEAD' : 'FAIL',
-            'session=', head.sessionId,
-            'seq=', head.sequenceNumber,
-            'attempt=', head.attempts, '/', MAX_ATTEMPTS,
-            'http=', result.status,
-            'took=', tookMs, 'ms',
-            'reason=', result.error,
-          );
-          // Stop draining on failure — likely a transient network issue.
-          // We'll retry on the next AppState/NetInfo trigger.
-          break;
+          try {
+            await FileSystem.deleteAsync(head.localUri, { idempotent: true });
+          } catch {
+            /* noop */
+          }
+          continue;
         }
+
+        head.attempts += 1;
+        const willGiveUp = head.attempts >= MAX_ATTEMPTS;
+        if (willGiveUp) head.status = 'failed';
+        await this._persist();
+        this._emit();
+        console.warn(
+          '[audio-up]', willGiveUp ? 'DEAD' : 'FAIL',
+          'session=', head.sessionId,
+          'seq=', head.sequenceNumber,
+          'attempt=', head.attempts, '/', MAX_ATTEMPTS,
+          'http=', result.status,
+          'took=', tookMs, 'ms',
+          'reason=', result.error,
+        );
+        // Stop draining on transient failure — likely a network blip.
+        // We'll retry on the next AppState/NetInfo trigger.
+        break;
       }
     } finally {
       this.draining = false;
+    }
+  }
+
+  // Wait for the queue to fully drain (or give up after a bounded retry
+  // budget). Used by stop() so we don't call /finish before the last
+  // chunk has been persisted on the server. We retry transient failures
+  // with backoff (500ms → 2s) so a brief network blip at stop time
+  // doesn't lose the recording.
+  async flush({ maxAttempts = 5 } = {}) {
+    await this.load();
+    const backoffs = [500, 1000, 1500, 2000];
+    for (let i = 0; i < maxAttempts; i++) {
+      if (this.pendingCount() === 0) return;
+      await this.drain();
+      if (this.pendingCount() === 0) return;
+      // Still pending after this drain — entry failed transiently. Wait
+      // a beat then try again.
+      const wait = backoffs[Math.min(i, backoffs.length - 1)];
+      await new Promise((r) => setTimeout(r, wait));
+    }
+    if (this.pendingCount() > 0) {
+      console.warn(
+        '[audio-up] flush gave up with',
+        this.pendingCount(),
+        'still queued — proceeding to finish; chunks will retry on next drain trigger',
+      );
     }
   }
 
