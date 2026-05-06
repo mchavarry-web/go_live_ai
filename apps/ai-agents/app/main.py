@@ -16,7 +16,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.internal_auth import require_internal_token
-from app.api.routes import audio, chat, health, insights, memory
+from app.api.routes import audio, chat, events, health, insights, memory
 from app.config.langsmith import setup_langsmith
 from app.config.settings import Settings
 
@@ -140,6 +140,7 @@ def create_app() -> FastAPI:
     app.include_router(memory.router, dependencies=internal_guard)
     app.include_router(insights.router, dependencies=internal_guard)
     app.include_router(audio.router, dependencies=internal_guard)
+    app.include_router(events.router, dependencies=internal_guard)
 
     return app
 

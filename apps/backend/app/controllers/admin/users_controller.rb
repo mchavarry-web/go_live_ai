@@ -24,9 +24,17 @@ class Admin::UsersController < Admin::AdminController
     @social_connections  = @user.social_connections.order(:provider)
     @device_tokens       = @user.device_tokens.order(created_at: :desc)
     @conversations       = @user.conversations.recent.limit(10)
-    @recent_messages     = @user.messages.order(created_at: :desc).limit(20)
+    @conversations_count = @user.conversations.count
+    @messages_count      = @user.messages.count
+    @recent_messages     = @user.messages.order(created_at: :desc).limit(8)
     @disabled_user_flags = @user.user_feature_settings.where(enabled: false).pluck(:key)
     @insights_count      = @avatar&.insights_count.to_i
+    @audio_sessions      = @user.audio_sessions.recent.limit(5)
+    @audio_sessions_count = @user.audio_sessions.count
+    @voice_enrolled      = @user.voice_enrollment.present?
+
+    # Memory/training summary (best-effort — fall back gracefully if FastAPI is down).
+    @memory_summary = fetch_memory_summary(@user.id)
   end
 
   def new
@@ -103,6 +111,25 @@ class Admin::UsersController < Admin::AdminController
 
   def set_user
     @user = User.find(params[:id])
+  end
+
+  # Returns a hash usable by the show view even when FastAPI is unreachable:
+  #   { ok:, total:, knowledge_level:, categories: {cat=>n}, sources: {src=>n}, error: }
+  def fetch_memory_summary(user_id)
+    client = AiAgentsClient.new
+    summary = client.list_insights(user_id) || {}
+    cats    = client.insight_categories(user_id) || {}
+    srcs    = client.insight_sources(user_id) || {}
+    {
+      ok:              true,
+      total:           summary["total_insights"].to_i,
+      knowledge_level: summary["knowledge_level"],
+      categories:      cats["counts"] || {},
+      sources:         srcs["sources"] || {}
+    }
+  rescue StandardError => e
+    Rails.logger.warn("[admin] memory summary fetch failed: #{e.class}: #{e.message}")
+    { ok: false, total: 0, knowledge_level: nil, categories: {}, sources: {}, error: e.message }
   end
 
   def user_params

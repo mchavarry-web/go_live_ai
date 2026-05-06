@@ -114,7 +114,8 @@ class ChatGenerationJob < ApplicationJob
       message:         user_message.content,
       conversation_id: conversation.id,
       user_profile:    user_profile(user),
-      conversation_history: conversation.history_payload
+      conversation_history: conversation.history_payload,
+      message_created_at: user_message.created_at.utc.iso8601
     }
   end
 
@@ -124,6 +125,7 @@ class ChatGenerationJob < ApplicationJob
       display_name:    user.name,
       avatar_name:     avatar&.name.presence || "Avatar",
       country:         user.country,
+      timezone:        user.timezone,
       interests:       [],
       knowledge_level: [((avatar&.knowledge_level || 1) + 1) / 2, 5].min,
       # Behavior mode + the user's lifetime message count *in that mode*.

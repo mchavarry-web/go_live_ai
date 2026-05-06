@@ -1,0 +1,157 @@
+<div class="px-4 sm:px-6 lg:px-8 space-y-6">
+  <!-- Header -->
+  <div class="flex items-start justify-between">
+    <div>
+      <%= link_to "← Volver a #{@user.email}", admin_user_path(@user),
+                  class: "text-xs text-gray-500 hover:text-gray-700" %>
+      <h1 class="mt-1 text-3xl font-bold text-gray-900">Memoria & entrenamiento</h1>
+      <p class="mt-1 text-sm text-gray-500">
+        <%= @total %> insight<%= "s" if @total != 1 %> ·
+        knowledge level: <span class="font-medium text-gray-700"><%= @knowledge_level || "—" %></span>
+      </p>
+    </div>
+  </div>
+
+  <% if @upstream_error %>
+    <div class="rounded-md bg-red-50 border border-red-200 p-4 text-sm text-red-700">
+      FastAPI no respondió: <code class="font-mono"><%= @upstream_error %></code>
+    </div>
+  <% end %>
+
+  <!-- Stat strip: categories + sources -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-gray-900">Categorías</h2>
+        <% if @selected_category %>
+          <%= link_to "Limpiar filtro", admin_user_memories_path(@user, source: @selected_source, q: @q),
+                      class: "text-xs text-orange-600 hover:text-orange-800" %>
+        <% end %>
+      </div>
+      <div class="px-4 py-3">
+        <% if @categories.any? %>
+          <div class="flex flex-wrap gap-2">
+            <% @categories.each do |cat, n| %>
+              <%= link_to admin_user_memories_path(@user, category: cat, source: @selected_source, q: @q),
+                          class: "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border #{cat == @selected_category ? 'bg-orange-600 text-white border-orange-600' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}" do %>
+                <span class="capitalize"><%= cat %></span>
+                <span class="font-mono opacity-75"><%= n %></span>
+              <% end %>
+            <% end %>
+          </div>
+        <% else %>
+          <p class="text-xs text-gray-400">Sin categorías.</p>
+        <% end %>
+      </div>
+    </div>
+
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-gray-900">Fuentes</h2>
+        <% if @selected_source %>
+          <%= link_to "Limpiar filtro", admin_user_memories_path(@user, category: @selected_category, q: @q),
+                      class: "text-xs text-orange-600 hover:text-orange-800" %>
+        <% end %>
+      </div>
+      <div class="px-4 py-3">
+        <% if @sources.any? %>
+          <div class="flex flex-wrap gap-2">
+            <% @sources.each do |src, n| %>
+              <%= link_to admin_user_memories_path(@user, category: @selected_category, source: src, q: @q),
+                          class: "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border #{src == @selected_source ? 'bg-amber-600 text-white border-amber-600' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}" do %>
+                <span class="font-mono"><%= src %></span>
+                <span class="font-mono opacity-75"><%= n %></span>
+              <% end %>
+            <% end %>
+          </div>
+        <% else %>
+          <p class="text-xs text-gray-400">Sin fuentes.</p>
+        <% end %>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <%= form_with url: admin_user_memories_path(@user), method: :get, local: true,
+                class: "bg-white shadow rounded-lg p-3 flex items-center gap-3" do %>
+    <%= hidden_field_tag :category, @selected_category %>
+    <%= hidden_field_tag :source,   @selected_source %>
+    <%= text_field_tag :q, @q,
+        placeholder: "Buscar en el contenido…",
+        class: "flex-1 rounded-md border-gray-300 text-sm focus:ring-orange-500 focus:border-orange-500" %>
+    <%= submit_tag "Buscar",
+        class: "inline-flex items-center rounded-md bg-gray-800 px-4 py-1.5 text-sm font-semibold text-white hover:bg-gray-900" %>
+    <% if @q %>
+      <%= link_to "Limpiar", admin_user_memories_path(@user, category: @selected_category, source: @selected_source),
+                  class: "text-sm text-gray-500 hover:text-gray-700" %>
+    <% end %>
+  <% end %>
+
+  <!-- Insights table -->
+  <div class="bg-white shadow rounded-lg overflow-hidden">
+    <div class="px-6 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-900">
+        Insights
+        <% if @insights.size != @total %>
+          <span class="ml-1 text-xs text-gray-500">(<%= @insights.size %> de <%= @total %>)</span>
+        <% end %>
+      </h2>
+    </div>
+    <table class="min-w-full divide-y divide-gray-200 text-sm">
+      <thead class="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+        <tr>
+          <th class="px-6 py-3">Contenido</th>
+          <th class="px-6 py-3">Categoría</th>
+          <th class="px-6 py-3">Fuente</th>
+          <th class="px-6 py-3">Conf.</th>
+          <th class="px-6 py-3">Creado</th>
+          <th class="px-6 py-3 text-right">Acciones</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        <% @insights.each do |ins| %>
+          <tr class="hover:bg-gray-50">
+            <td class="px-6 py-3 max-w-md">
+              <%= link_to admin_user_memory_path(@user, ins["id"]),
+                          class: "text-gray-900 hover:text-orange-600 line-clamp-2" do %>
+                <%= truncate(ins["content"].to_s, length: 200) %>
+              <% end %>
+            </td>
+            <td class="px-6 py-3">
+              <span class="inline-flex items-center rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700 capitalize">
+                <%= ins["category"] %>
+              </span>
+            </td>
+            <td class="px-6 py-3">
+              <span class="font-mono text-xs text-gray-600"><%= ins["source"] %></span>
+            </td>
+            <td class="px-6 py-3 text-gray-600">
+              <%= ins["confidence"] ? format("%.2f", ins["confidence"].to_f) : "—" %>
+            </td>
+            <td class="px-6 py-3 text-xs text-gray-500">
+              <%= fmt_iso_time(ins["created_at"]) %>
+            </td>
+            <td class="px-6 py-3 text-right space-x-2 whitespace-nowrap">
+              <%= link_to "Ver", admin_user_memory_path(@user, ins["id"]),
+                          class: "text-xs text-gray-600 hover:text-gray-900" %>
+              <%= link_to "Editar", edit_admin_user_memory_path(@user, ins["id"]),
+                          class: "text-xs text-orange-600 hover:text-orange-800" %>
+              <%= button_to "Eliminar", admin_user_memory_path(@user, ins["id"]),
+                            method: :delete,
+                            class: "inline text-xs text-red-600 hover:text-red-800",
+                            form: { class: "inline" },
+                            data: { turbo_confirm: "¿Eliminar este insight?" } %>
+            </td>
+          </tr>
+        <% end %>
+        <% if @insights.empty? %>
+          <tr>
+            <td colspan="6" class="px-6 py-12 text-center text-sm text-gray-500">
+              <%= @upstream_error ? "Sin datos." : "No hay insights que coincidan con el filtro." %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</div>

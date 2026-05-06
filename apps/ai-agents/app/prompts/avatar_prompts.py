@@ -212,6 +212,40 @@ def _build_persona_section(persona_insights: list[str] | None) -> str:
     return "\n".join(lines)
 
 
+def _build_events_section(
+    upcoming_events: list[dict[str, str | bool]] | None,
+    display_name: str,
+) -> str:
+    """Build the upcoming-events section for the system prompt.
+
+    Renders pre-humanized event entries (produced by
+    ``event_humanizer.serialize_events_for_prompt`` at profile-build time)
+    as a short block. The block is omitted entirely when there are no
+    upcoming events — the avatar should not be told "no events" because
+    that invites it to volunteer the absence unprompted.
+
+    Args:
+        upcoming_events: List of dicts with ``title``, ``when_human``,
+            ``when_iso``, and ``has_time`` keys, or None.
+        display_name: User's display name (used in the header).
+
+    Returns:
+        A formatted string block for upcoming events, or empty string.
+    """
+    if not upcoming_events:
+        return ""
+
+    lines = [f"PRÓXIMOS COMPROMISOS DE {display_name}:"]
+    for ev in upcoming_events:
+        lines.append(f"- {ev.get('when_human', '')}: {ev.get('title', '')}")
+    lines.append(
+        "Si la persona menciona alguno o pregunta por su agenda, refiérete a él "
+        "naturalmente (no como una lista). Si está cerca, podés recordárselo de "
+        "manera amistosa."
+    )
+    return "\n".join(lines)
+
+
 def _mode_demands_neutral_register(active_mode: str, mode_message_count: int) -> bool:
     """Whether the active mode requires the avatar to drop dialect/casual cues.
 
@@ -444,6 +478,7 @@ def build_avatar_system_prompt(
     custom_expressions: list[str] | None = None,
     active_mode: str = "friends",
     mode_message_count: int = 0,
+    upcoming_events: list[dict[str, str | bool]] | None = None,
 ) -> str:
     """Build the full avatar system prompt from user profile and context.
 
@@ -488,6 +523,7 @@ def build_avatar_system_prompt(
     health_section = _build_health_section(health_data)
     insights_section = _build_insights_section(insights)
     persona_section = _build_persona_section(persona_insights)
+    events_section = _build_events_section(upcoming_events, display_name)
     behavior_section = _build_behavior_section(
         behavior_settings,
         active_mode=active_mode,
@@ -517,14 +553,43 @@ def build_avatar_system_prompt(
             health_section=health_section,
             insights_section=insights_section,
             persona_section=persona_section,
+            events_section=events_section,
             knowledge_level=knowledge_level,
             current_datetime=datetime_str,
             language_style_section=language_style_section,
             mode_section=mode_section,
         )
     except KeyError as exc:
-        logger.error("Failed to format avatar system prompt: missing key %s", exc)
-        raise ValueError(f"Template formatting error: missing key {exc}") from exc
+        # Template predates the events_section placeholder — append the
+        # block to the end so the section still surfaces, with a warning
+        # so deployments stay aware they're running a stale template.
+        if str(exc).strip("'") == "events_section":
+            logger.warning(
+                "avatar_system.txt template is missing {events_section}; appending the block"
+            )
+            template_no_events = template.replace("{events_section}", "")
+            formatted = template_no_events.format(
+                avatar_name=avatar_name,
+                display_name=display_name,
+                age_range=age_range_str,
+                interests=interests_str,
+                personality_section=personality_section,
+                social_section=social_section,
+                health_section=health_section,
+                insights_section=insights_section,
+                persona_section=persona_section,
+                knowledge_level=knowledge_level,
+                current_datetime=datetime_str,
+                language_style_section=language_style_section,
+                mode_section=mode_section,
+            )
+            if events_section:
+                formatted += "\n\n" + events_section
+        else:
+            logger.error(
+                "Failed to format avatar system prompt: missing key %s", exc
+            )
+            raise ValueError(f"Template formatting error: missing key {exc}") from exc
 
     if behavior_section:
         formatted += "\n" + behavior_section

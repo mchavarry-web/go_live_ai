@@ -48,6 +48,9 @@ dependencies = [
     # Migrations
     "alembic>=1.13.0",
 
+    # Date resolution for event extraction (Spanish + relative phrase support)
+    "dateparser>=1.2.0",
+
     # Utils
     "python-dotenv>=1.0.0",
 ]

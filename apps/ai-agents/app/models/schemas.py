@@ -47,6 +47,11 @@ class UserProfile(BaseModel):
         max_length=2,
         description="ISO 3166-1 alpha-2 country code (e.g. 'ar', 'mx', 'pe')",
     )
+    timezone: str | None = Field(
+        default=None,
+        max_length=50,
+        description="IANA timezone name (e.g. 'America/Lima'). Used to resolve relative date phrases during event extraction.",
+    )
     interests: list[str] = Field(default_factory=list)
     knowledge_level: int = Field(default=1, ge=1, le=5)
     introvert_extrovert: float | None = None
@@ -95,6 +100,10 @@ class ChatGenerateRequest(BaseModel):
     social_data: dict[str, object] | None = None
     health_data: dict[str, object] | None = None
     conversation_history: list[dict[str, str]] = Field(default_factory=list)
+    message_created_at: datetime | None = Field(
+        default=None,
+        description="UTC timestamp when the user sent the message. Used as RELATIVE_BASE for event-extraction date resolution.",
+    )
 
 
 class ChatGenerateResponse(BaseModel):
@@ -161,6 +170,76 @@ class InsightExtractRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     message: str = Field(..., min_length=1, max_length=10000)
     context: str = ""
+
+
+# ── User Events ─────────────────────────────────────────────────────────
+
+
+class UserEvent(BaseModel):
+    """A dated event/commitment extracted from a user message.
+
+    Stored in the ``user_events`` table; surfaced to the avatar's system
+    prompt via ``EventRepository.list_upcoming`` so the avatar can recall
+    appointments by absolute date instead of only through semantic search.
+
+    Attributes:
+        id: Unique event identifier.
+        user_id: The user this event belongs to.
+        title: Short label (max 200 chars).
+        occurs_at: Absolute UTC timestamp of the event.
+        occurs_at_has_time: False when the user gave only a date.
+        raw_text: Verbatim fragment of the user message.
+        source: Origin string (e.g. "conversation").
+        source_message_id: Optional Rails Message id for traceability.
+        confidence: Extraction confidence score (0.0 to 1.0).
+        status: One of "active", "cancelled", "archived".
+        timezone: IANA tz name used at extraction time.
+        created_at: When the event was extracted.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    user_id: str
+    title: str = Field(..., max_length=200)
+    occurs_at: datetime
+    occurs_at_has_time: bool = True
+    raw_text: str
+    source: str
+    source_message_id: str | None = None
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    status: Literal["active", "cancelled", "archived"] = "active"
+    timezone: str | None = None
+    created_at: datetime | None = None
+
+
+class UserEventCreate(BaseModel):
+    """Internal payload for creating a user event from extraction output.
+
+    Used by ``ChatService._extract_and_store_events`` to hand a resolved
+    event from the extraction chain to the repository.
+
+    Attributes:
+        title: Short label (max 200 chars).
+        occurs_at: Absolute UTC timestamp of the event.
+        occurs_at_has_time: False when the user gave only a date.
+        raw_text: Verbatim fragment of the user message.
+        source: Origin string (e.g. "conversation").
+        source_message_id: Optional Rails Message id.
+        confidence: Extraction confidence score.
+        timezone: IANA tz name used to resolve relative phrases.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str = Field(..., min_length=1, max_length=200)
+    occurs_at: datetime
+    occurs_at_has_time: bool = True
+    raw_text: str = Field(..., min_length=1, max_length=500)
+    source: str = "conversation"
+    source_message_id: str | None = None
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    timezone: str | None = None
 
 
 class SocialPost(BaseModel):

@@ -9,7 +9,7 @@ from typing import Optional
 from uuid import uuid4
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, Float, Index, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -83,6 +83,104 @@ class InsightModel(Base):
         return (
             f"<InsightModel(id={self.id!r}, user_id={self.user_id!r}, "
             f"category={self.category!r})>"
+        )
+
+
+class UserEventModel(Base):
+    """SQLAlchemy model for user-mentioned dated events (appointments, commitments).
+
+    Captures time-bound facts the user mentions in conversation — dentist
+    appointments, flights, deadlines — so the avatar can recall them by
+    absolute date rather than only via semantic search over insights.
+
+    Retrieved by ``EventRepository.list_upcoming`` for inclusion in the
+    avatar's system prompt; not embedded for vector search.
+
+    Attributes:
+        id: UUID primary key.
+        user_id: Foreign reference to the user (from api-backend).
+        title: Short label for the event (max 200 chars).
+        occurs_at: Absolute UTC timestamp of the event.
+        occurs_at_has_time: False when the user gave only a date (no clock);
+            renderer omits the time component when False.
+        raw_text: Verbatim fragment of the user message the event was extracted
+            from. Audit trail and dedupe key.
+        source: Origin string, mirrors InsightModel.source convention
+            (e.g. "conversation").
+        source_message_id: Optional Rails Message id for traceability.
+        confidence: Extraction confidence score (0.0-1.0).
+        status: One of "active", "cancelled", "archived". Only "active" rows
+            surface in upcoming-event retrieval.
+        timezone: IANA tz name used to resolve relative phrases at extraction
+            time. Stored for forensic use; renderers use the request-time tz.
+        created_at: Timestamp of creation (server-side default).
+        updated_at: Timestamp of last update (auto-updated).
+    """
+
+    __tablename__ = "user_events"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        primary_key=True,
+        default=lambda: str(uuid4()),
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    occurs_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+    occurs_at_has_time: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+    )
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="conversation",
+    )
+    source_message_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        nullable=True,
+        index=True,
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="active",
+    )
+    timezone: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        onupdate=func.now(),
+        nullable=True,
+    )
+
+    __table_args__ = (
+        Index("ix_user_events_user_occurs", "user_id", "occurs_at"),
+        Index("ix_user_events_user_status", "user_id", "status"),
+    )
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        return (
+            f"<UserEventModel(id={self.id!r}, user_id={self.user_id!r}, "
+            f"title={self.title!r}, occurs_at={self.occurs_at!r})>"
         )
 
 

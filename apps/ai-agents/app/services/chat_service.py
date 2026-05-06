@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from typing import Optional
 
 from langchain_core.embeddings import Embeddings
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import _get_async_session_maker
 from app.chains.avatar_chain import AvatarChain
+from app.chains.event_extraction_chain import EventExtractionChain, ResolvedEvent
 from app.chains.insight_chain import InsightExtractionChain
 from app.chains.persona_evolution_chain import PersonaEvolutionChain
 from app.chains.slang_calibrator_chain import SlangCalibratorChain
@@ -29,9 +31,16 @@ from app.models.schemas import (
     Insight,
     ProactiveGenerateRequest,
     ProactiveGenerateResponse,
+    UserEvent,
 )
+from app.prompts.event_humanizer import serialize_events_for_prompt
 from app.prompts.proactive_greeting import build_proactive_system_prompt
+from app.repositories.event_repository import EventRepository
 from app.services.memory_service import MemoryService
+
+_DEFAULT_TIMEZONE = "America/Lima"
+_UPCOMING_EVENTS_HORIZON_DAYS = 14
+_UPCOMING_EVENTS_LIMIT = 10
 
 _SLANG_CALIBRATION_INTERVAL = 5
 
@@ -71,6 +80,7 @@ class ChatService:
         self.insight_chain = InsightExtractionChain(llm=llm)
         self.persona_chain = PersonaEvolutionChain(llm=llm)
         self.slang_calibrator = SlangCalibratorChain(llm=llm)
+        self.event_chain = EventExtractionChain(llm=llm)
         self.settings = settings
         self.llm = llm
         self.embeddings = embeddings
@@ -82,6 +92,7 @@ class ChatService:
         persona_insights: list[str] | None = None,
         formality_level: float | None = None,
         custom_expressions: list[str] | None = None,
+        upcoming_events: list | None = None,
     ) -> dict:
         """Extract user profile dict from the API request.
 
@@ -100,12 +111,19 @@ class ChatService:
             A dict containing all profile and context data for prompt building.
         """
         profile = request.user_profile
+        tz = profile.timezone or _DEFAULT_TIMEZONE
+        events_payload = serialize_events_for_prompt(
+            upcoming_events or [],
+            user_tz=tz,
+            now_utc=datetime.now(UTC),
+        )
         return {
             "avatar_name": profile.avatar_name,
             "display_name": profile.display_name,
             "knowledge_level": profile.knowledge_level,
             "age_range": profile.age_range,
             "country": profile.country,
+            "timezone": profile.timezone,
             "interests": list(profile.interests),
             "introvert_extrovert": profile.introvert_extrovert,
             "rational_emotional": profile.rational_emotional,
@@ -116,6 +134,7 @@ class ChatService:
             "persona_insights": persona_insights,
             "formality_level": formality_level,
             "custom_expressions": custom_expressions,
+            "upcoming_events": events_payload,
             "active_mode": profile.active_mode,
             "mode_message_count": profile.mode_message_count,
         }
@@ -225,6 +244,48 @@ class ChatService:
                 exc_info=True,
             )
             return None
+
+    async def _get_upcoming_events(
+        self,
+        user_id: str,
+        session: Optional[AsyncSession] = None,
+    ) -> list:
+        """Fetch upcoming events for prompt injection (filter-by-time, no RAG).
+
+        Also performs an opportunistic archive of past events for the same
+        user — keeps the read window clean without a cron job. Failures
+        always degrade to an empty list so an event-table outage cannot
+        break chat generation.
+
+        Args:
+            user_id: The user's unique identifier.
+            session: Optional database session.
+
+        Returns:
+            List of ``UserEventModel`` rows occurring within the next
+            ``_UPCOMING_EVENTS_HORIZON_DAYS``, soonest first. Empty when
+            no session, no events, or on error.
+        """
+        if not session:
+            return []
+
+        try:
+            repo = EventRepository(session)
+            now_utc = datetime.now(UTC)
+            await repo.archive_past(user_id, before=now_utc)
+            return await repo.list_upcoming(
+                user_id,
+                now_utc=now_utc,
+                horizon_days=_UPCOMING_EVENTS_HORIZON_DAYS,
+                limit=_UPCOMING_EVENTS_LIMIT,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to retrieve upcoming events for user_id=%s",
+                user_id,
+                exc_info=True,
+            )
+            return []
 
     async def _get_language_style(
         self,
@@ -477,6 +538,92 @@ class ChatService:
             )
             return []
 
+    async def _extract_and_store_events(
+        self,
+        *,
+        user_id: str,
+        message: str,
+        timezone: str | None,
+        message_created_at: datetime | None,
+        session: Optional[AsyncSession],
+        assistant_response: Optional[str] = None,
+    ) -> list[UserEvent]:
+        """Extract dated commitments from the turn and persist them.
+
+        Mirrors ``_extract_and_store_insights``: runs after the streamed
+        response has been delivered, fails closed (returns empty list)
+        on any error so the chat experience is never affected.
+
+        Dedupes via ``EventRepository.find_duplicate`` — repeated mentions
+        of the same appointment within ±60 minutes don't create new rows.
+
+        Args:
+            user_id: The user's unique identifier.
+            message: The user's message text.
+            timezone: IANA tz name (falls back to ``"America/Lima"``).
+            message_created_at: When the user sent the message (UTC).
+                Falls back to "now" if missing — degrades gracefully for
+                old Rails clients that don't pass the field yet.
+            session: Optional database session.
+            assistant_response: Optional assistant turn text.
+
+        Returns:
+            List of newly persisted ``UserEvent`` schemas.
+        """
+        if not session:
+            return []
+
+        tz = timezone or _DEFAULT_TIMEZONE
+        now_utc = datetime.now(UTC)
+        msg_at = message_created_at or now_utc
+
+        try:
+            resolved = await self.event_chain.extract(
+                message=message,
+                now_utc=now_utc,
+                timezone=tz,
+                message_created_at=msg_at,
+                assistant_response=assistant_response,
+            )
+            if not resolved:
+                return []
+
+            repo = EventRepository(session)
+            stored: list[UserEvent] = []
+            for ev in resolved:
+                dup = await repo.find_duplicate(
+                    user_id,
+                    title=ev.title,
+                    occurs_at=ev.occurs_at,
+                )
+                if dup is not None:
+                    logger.debug(
+                        "Skipping duplicate event for user_id=%s: %r at %s",
+                        user_id,
+                        ev.title,
+                        ev.occurs_at.isoformat(),
+                    )
+                    continue
+                row = await repo.create_event(
+                    user_id=user_id,
+                    title=ev.title,
+                    occurs_at=ev.occurs_at,
+                    occurs_at_has_time=ev.occurs_at_has_time,
+                    raw_text=ev.raw_text,
+                    source="conversation",
+                    source_message_id=None,
+                    confidence=ev.confidence,
+                    timezone=tz,
+                )
+                stored.append(UserEvent.model_validate(row))
+            return stored
+        except Exception:
+            logger.exception(
+                "Event extraction/storage failed for user_id=%s",
+                user_id,
+            )
+            return []
+
     @traceable(name="generate_chat_response", run_type="chain")
     async def generate_response(
         self,
@@ -522,6 +669,7 @@ class ChatService:
             persona_insights=mem.persona_insights,
             formality_level=mem.formality_level,
             custom_expressions=mem.custom_expressions,
+            upcoming_events=mem.upcoming_events,
         )
 
         # Step 3: Generate response
@@ -565,6 +713,14 @@ class ChatService:
                 prior_persona=mem.persona_insights,
                 session=session,
                 active_mode=request.user_profile.active_mode,
+            ),
+            self._extract_and_store_events(
+                user_id=request.user_id,
+                message=request.message,
+                timezone=request.user_profile.timezone,
+                message_created_at=request.message_created_at,
+                session=session,
+                assistant_response=result["response"],
             ),
         ]
         if should_calibrate:
@@ -815,6 +971,7 @@ class ChatService:
             persona_insights=mem.persona_insights,
             formality_level=mem.formality_level,
             custom_expressions=mem.custom_expressions,
+            upcoming_events=mem.upcoming_events,
         )
 
         logger.info(
@@ -877,6 +1034,8 @@ class ChatService:
                 conversation_history=history,
                 should_calibrate=should_calibrate,
                 active_mode=request.user_profile.active_mode,
+                timezone=request.user_profile.timezone,
+                message_created_at=request.message_created_at,
             )
         )
 
@@ -893,10 +1052,12 @@ class ChatService:
         conversation_history: list,
         should_calibrate: bool,
         active_mode: str = "friends",
+        timezone: str | None = None,
+        message_created_at: datetime | None = None,
     ) -> None:
-        """Run insight extraction, persona evolution, and slang calibration in
-        a fresh DB session so they survive the request-scoped session being
-        closed when the SSE generator returns.
+        """Run insight extraction, persona evolution, slang calibration, and
+        event extraction in a fresh DB session so they survive the
+        request-scoped session being closed when the SSE generator returns.
         """
         session_maker = _get_async_session_maker(self.settings)
         async with session_maker() as session:
@@ -916,6 +1077,14 @@ class ChatService:
                         prior_persona=persona_insights,
                         session=session,
                         active_mode=active_mode,
+                    ),
+                    self._extract_and_store_events(
+                        user_id=user_id,
+                        message=user_message,
+                        timezone=timezone,
+                        message_created_at=message_created_at,
+                        session=session,
+                        assistant_response=assistant_response,
                     ),
                 ]
                 if should_calibrate:
@@ -941,6 +1110,7 @@ class _MemoryContext:
         "persona_insights",
         "formality_level",
         "custom_expressions",
+        "upcoming_events",
     )
 
     def __init__(
@@ -949,11 +1119,13 @@ class _MemoryContext:
         persona_insights: list[str] | None = None,
         formality_level: float | None = None,
         custom_expressions: list[str] | None = None,
+        upcoming_events: list | None = None,
     ) -> None:
         self.memory_insights = memory_insights
         self.persona_insights = persona_insights
         self.formality_level = formality_level
         self.custom_expressions = custom_expressions
+        self.upcoming_events = upcoming_events or []
 
 
 async def _gather_memory(
@@ -963,7 +1135,7 @@ async def _gather_memory(
     session: Optional[AsyncSession],
     active_mode: str = "friends",
 ) -> _MemoryContext:
-    """Fetch user insights, persona notes, and language style concurrently.
+    """Fetch user insights, persona notes, language style, and upcoming events.
 
     Args:
         service: The ChatService instance.
@@ -982,6 +1154,7 @@ async def _gather_memory(
             user_id=user_id, message=message, session=session, active_mode=active_mode
         ),
         service._get_language_style(user_id=user_id, session=session),
+        service._get_upcoming_events(user_id=user_id, session=session),
         return_exceptions=True,
     )
     memory_insights = results[0] if not isinstance(results[0], BaseException) else None
@@ -992,9 +1165,12 @@ async def _gather_memory(
     if not isinstance(results[2], BaseException):
         formality_level, custom_expressions = results[2]
 
+    upcoming_events = results[3] if not isinstance(results[3], BaseException) else []
+
     return _MemoryContext(
         memory_insights=memory_insights,
         persona_insights=persona_insights,
         formality_level=formality_level,
         custom_expressions=custom_expressions,
+        upcoming_events=upcoming_events,
     )

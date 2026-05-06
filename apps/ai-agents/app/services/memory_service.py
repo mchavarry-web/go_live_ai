@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import InsightModel
 from app.models.schemas import Insight, MemoryResponse
+from app.repositories.event_repository import EventRepository
 from app.repositories.insight_repository import InsightRepository
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ class MemoryService:
             session: Async SQLAlchemy database session.
             embeddings: LangChain Embeddings instance.
         """
+        self._session = session
         self.repository = InsightRepository(session)
         self.embeddings = embeddings
 
@@ -229,7 +231,9 @@ class MemoryService:
     async def delete_user_memory(self, user_id: str) -> int:
         """Delete all memory for a user (GDPR compliance).
 
-        Removes all insights and their embeddings.
+        Removes all insights, their embeddings, and any user_events rows.
+        Returned count reflects insights only (the historical contract);
+        deleted event count is logged separately.
 
         Args:
             user_id: The user's unique identifier.
@@ -238,9 +242,19 @@ class MemoryService:
             Number of deleted insights.
         """
         count = await self.repository.delete_by_user_id(user_id)
+        try:
+            event_repo = EventRepository(self._session)
+            event_count = await event_repo.delete_by_user_id(user_id)
+        except Exception:
+            logger.exception(
+                "GDPR: event wipe failed for user_id=%s — insights already deleted",
+                user_id,
+            )
+            event_count = -1
         logger.info(
-            "GDPR: Deleted %d insights for user_id=%s",
+            "GDPR: Deleted %d insights and %d events for user_id=%s",
             count,
+            event_count,
             user_id,
         )
         return count

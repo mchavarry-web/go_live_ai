@@ -97,6 +97,18 @@
             style: "background-color: #E65F00;" %>
       </div>
 
+      <!-- Dev convenience: fill seed admin credentials -->
+      <div>
+        <button type="button"
+                class="w-full flex justify-center py-2 px-4 border border-dashed border-gray-300 text-sm font-medium rounded-md text-gray-600 bg-white hover:bg-gray-50 focus:outline-none"
+                data-controller="seed-admin"
+                data-action="click->seed-admin#fill"
+                data-seed-admin-email-value="admin@golive.local"
+                data-seed-admin-password-value="password123">
+          Usar credenciales de admin (dev)
+        </button>
+      </div>
+
       <!-- Links -->
       <div class="text-center">
         <%= render "devise/shared/links" %>

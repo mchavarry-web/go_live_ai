@@ -21,6 +21,8 @@ COSAS QUE SABES DE {display_name}:
 {insights_section}
 {persona_section}
 
+{events_section}
+
 {language_style_section}
 
 CÓMO HABLAS — TU VOZ REAL:

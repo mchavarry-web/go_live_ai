@@ -24,3 +24,6 @@ application.register("mobile-dropdown", MobileDropdownController)
 
 import MobileMenuController from "./mobile_menu_controller"
 application.register("mobile-menu", MobileMenuController)
+
+import SeedAdminController from "./seed_admin_controller"
+application.register("seed-admin", SeedAdminController)

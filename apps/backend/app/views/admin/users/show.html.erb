@@ -1,39 +1,96 @@
 <div class="px-4 sm:px-6 lg:px-8 space-y-8">
-  <!-- Header -->
-  <div class="sm:flex sm:items-center sm:justify-between">
-    <div>
-      <h1 class="text-3xl font-bold text-gray-900"><%= @user.email %></h1>
-      <p class="mt-1 text-sm text-gray-500">
-        <%= @user.name.presence || "—" %> ·
-        <%= @user.provider || "email" %> ·
-        <%= @user.country || "—" %> ·
-        <%= @user.timezone || "—" %>
-      </p>
-    </div>
-    <div class="space-x-2">
-      <%= link_to "Editar", edit_admin_user_path(@user),
-                  class: "inline-flex items-center rounded-md bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50" %>
-      <% if @user.admin? %>
-        <%= button_to "Revocar admin", demote_admin_user_path(@user), method: :post,
-                      class: "inline-flex items-center rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700",
-                      data: { turbo_confirm: "¿Quitar rol administrador?" } %>
-      <% else %>
-        <%= button_to "Promover a admin", promote_admin_user_path(@user), method: :post,
-                      class: "inline-flex items-center rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700" %>
-      <% end %>
+  <!-- ── Hero ─────────────────────────────────────────────────────────── -->
+  <div class="bg-white shadow rounded-xl overflow-hidden">
+    <div class="h-24 bg-gradient-to-r from-orange-500 via-orange-600 to-amber-500"></div>
+    <div class="px-6 pb-6 -mt-12 sm:flex sm:items-end sm:justify-between">
+      <div class="flex items-end">
+        <% if @user.user_image_url.present? %>
+          <img src="<%= @user.user_image_url(:thumb) %>"
+               alt="<%= @user.email %>"
+               class="w-24 h-24 rounded-full ring-4 ring-white object-cover shadow-lg" />
+        <% else %>
+          <div class="w-24 h-24 rounded-full ring-4 ring-white shadow-lg bg-gray-700 text-white flex items-center justify-center text-2xl font-semibold">
+            <%= @user.avatar_initials %>
+          </div>
+        <% end %>
+        <div class="ml-4 mb-1">
+          <div class="flex items-center gap-2">
+            <h1 class="text-2xl font-bold text-gray-900"><%= @user.name %></h1>
+            <% if @user.admin? %>
+              <span class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">admin</span>
+            <% end %>
+            <% if @user.onboarded? %>
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">onboarded</span>
+            <% else %>
+              <span class="inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">pending onboarding</span>
+            <% end %>
+          </div>
+          <p class="mt-1 text-sm text-gray-600"><%= @user.email %></p>
+          <p class="text-xs text-gray-500">
+            <%= @user.provider || "email" %>
+            <% if @user.country.present? %> · <%= @user.country %><% end %>
+            <% if @user.timezone.present? %> · <%= @user.timezone %><% end %>
+            · creado <%= time_ago_in_words(@user.created_at) %> atrás
+          </p>
+        </div>
+      </div>
+      <div class="mt-4 sm:mt-0 flex flex-wrap gap-2">
+        <%= link_to "Editar", edit_admin_user_path(@user),
+                    class: "inline-flex items-center rounded-md bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50" %>
+        <% if @user.admin? %>
+          <%= button_to "Revocar admin", demote_admin_user_path(@user), method: :post,
+                        class: "inline-flex items-center rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700",
+                        data: { turbo_confirm: "¿Quitar rol administrador?" } %>
+        <% else %>
+          <%= button_to "Promover a admin", promote_admin_user_path(@user), method: :post,
+                        class: "inline-flex items-center rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700" %>
+        <% end %>
+      </div>
     </div>
   </div>
 
-  <!-- Summary grid -->
+  <!-- ── KPI strip ────────────────────────────────────────────────────── -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+    <% [
+         ["Nivel avatar",  "#{@avatar&.knowledge_level || '—'} / 10", @avatar&.stage],
+         ["Insights",      @memory_summary[:total],                 "memoria"],
+         ["Conversaciones",@conversations_count,                    "totales"],
+         ["Mensajes",      @messages_count,                         "totales"],
+         ["Audio sessions",@audio_sessions_count,                   @voice_enrolled ? "voz registrada" : "sin enrolamiento"],
+         ["Sociales",      @social_connections.size,                "conectadas"]
+       ].each do |label, value, hint| %>
+      <div class="bg-white shadow-sm rounded-lg px-4 py-3 border border-gray-100">
+        <p class="text-[11px] uppercase tracking-wide text-gray-500"><%= label %></p>
+        <p class="mt-0.5 text-xl font-semibold text-gray-900 leading-none"><%= value %></p>
+        <% if hint %><p class="mt-1 text-[11px] text-gray-400"><%= hint %></p><% end %>
+      </div>
+    <% end %>
+  </div>
+
+  <!-- ── Main 3-column grid ───────────────────────────────────────────── -->
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
     <!-- Profile -->
     <div class="bg-white shadow rounded-lg">
-      <div class="px-6 py-4 border-b border-gray-100"><h2 class="text-base font-semibold">Perfil</h2></div>
+      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="text-base font-semibold text-gray-900">Perfil</h2>
+        <span class="text-xs text-gray-400">id: <code class="font-mono"><%= @user.id %></code></span>
+      </div>
       <dl class="px-6 py-4 text-sm divide-y divide-gray-100">
-        <% { "Rol" => @user.role, "País" => @user.country, "Zona horaria" => @user.timezone, "Formalidad" => @user.formality_level, "Onboarded" => (@user.onboarded? ? "sí" : "no"), "Proveedor" => @user.provider }.each do |k, v| %>
+        <% [
+             ["Nombre",     @user.name],
+             ["Teléfono",   @user.phone_number],
+             ["Rol",        @user.role],
+             ["Proveedor",  @user.provider || "email"],
+             ["País",       @user.country],
+             ["Zona horaria", @user.timezone],
+             ["Formalidad", @user.formality_level],
+             ["Onboarding", @user.onboarding_completed_at&.strftime("%Y-%m-%d %H:%M") || "—"],
+             ["Provider UID", @user.provider_uid]
+           ].each do |k, v| %>
           <div class="flex justify-between py-2">
             <dt class="text-gray-500"><%= k %></dt>
-            <dd class="font-medium text-gray-900"><%= v.presence || "—" %></dd>
+            <dd class="font-medium text-gray-900 truncate ml-4 max-w-[60%] text-right"><%= v.presence || "—" %></dd>
           </div>
         <% end %>
       </dl>
@@ -46,101 +103,251 @@
 
     <!-- Avatar -->
     <div class="bg-white shadow rounded-lg">
-      <div class="px-6 py-4 border-b border-gray-100"><h2 class="text-base font-semibold">Avatar</h2></div>
-      <dl class="px-6 py-4 text-sm divide-y divide-gray-100">
-        <div class="flex justify-between py-2"><dt class="text-gray-500">Nivel</dt>
-          <dd class="font-semibold text-gray-900"><%= @avatar&.knowledge_level %> / 10 — <span class="text-gray-500 font-normal"><%= @avatar&.stage %></span></dd></div>
-        <% (@avatar&.raw_knowledge || {}).each do |k, v| %>
-          <div class="flex justify-between py-2"><dt class="text-gray-500"><%= k.to_s.humanize %></dt><dd class="text-gray-900"><%= v %></dd></div>
+      <div class="px-6 py-4 border-b border-gray-100">
+        <h2 class="text-base font-semibold text-gray-900">Avatar</h2>
+      </div>
+      <div class="px-6 py-4 text-sm">
+        <div class="flex items-center gap-4">
+          <div class="text-3xl font-bold text-gray-900"><%= @avatar&.knowledge_level || "—" %></div>
+          <div>
+            <div class="text-xs text-gray-500 uppercase tracking-wide">stage</div>
+            <div class="text-sm font-medium capitalize"><%= @avatar&.stage || "—" %></div>
+          </div>
+        </div>
+        <div class="mt-3 h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+          <div class="h-2 bg-gradient-to-r from-orange-400 to-amber-500"
+               style="width: <%= [(@avatar&.knowledge_level || 0) * 10, 100].min %>%"></div>
+        </div>
+        <% if @avatar %>
+          <dl class="mt-4 grid grid-cols-2 gap-2 text-xs">
+            <% (@avatar.raw_knowledge || {}).each do |k, v| %>
+              <div class="rounded bg-gray-50 px-3 py-2">
+                <dt class="text-gray-500"><%= k.to_s.humanize %></dt>
+                <dd class="font-medium text-gray-900"><%= v.presence || "—" %></dd>
+              </div>
+            <% end %>
+          </dl>
+          <div class="mt-3 text-xs text-gray-500">
+            Modo activo: <span class="font-medium text-gray-800 capitalize"><%= @avatar.active_mode %></span>
+          </div>
         <% end %>
-      </dl>
+      </div>
     </div>
 
     <!-- Activity -->
     <div class="bg-white shadow rounded-lg">
-      <div class="px-6 py-4 border-b border-gray-100"><h2 class="text-base font-semibold">Actividad</h2></div>
+      <div class="px-6 py-4 border-b border-gray-100">
+        <h2 class="text-base font-semibold text-gray-900">Actividad</h2>
+      </div>
       <dl class="px-6 py-4 text-sm divide-y divide-gray-100">
-        <div class="flex justify-between py-2"><dt class="text-gray-500">Conversaciones</dt><dd><%= @conversations.size %></dd></div>
-        <div class="flex justify-between py-2"><dt class="text-gray-500">Mensajes (recientes)</dt><dd><%= @recent_messages.size %></dd></div>
-        <div class="flex justify-between py-2"><dt class="text-gray-500">Último skill proactivo</dt><dd class="font-mono"><%= @user.last_proactive_skill || "—" %></dd></div>
+        <div class="flex justify-between py-2"><dt class="text-gray-500">Conversaciones</dt><dd class="font-medium"><%= @conversations_count %></dd></div>
+        <div class="flex justify-between py-2"><dt class="text-gray-500">Mensajes (total)</dt><dd class="font-medium"><%= @messages_count %></dd></div>
+        <div class="flex justify-between py-2"><dt class="text-gray-500">Último skill proactivo</dt><dd class="font-mono text-xs"><%= @user.last_proactive_skill || "—" %></dd></div>
         <div class="flex justify-between py-2"><dt class="text-gray-500">Último saludo</dt><dd><%= @user.last_proactive_at ? "#{time_ago_in_words(@user.last_proactive_at)} ago" : "—" %></dd></div>
-        <div class="flex justify-between py-2"><dt class="text-gray-500">Skills opted-out</dt><dd class="font-mono text-xs"><%= (@disabled_user_flags.presence || ["—"]).join(", ") %></dd></div>
+        <div class="flex justify-between py-2"><dt class="text-gray-500">Último sign-in</dt><dd><%= @user.current_sign_in_at ? "#{time_ago_in_words(@user.current_sign_in_at)} ago" : "—" %></dd></div>
+        <div class="flex justify-between py-2"><dt class="text-gray-500">Skills opted-out</dt><dd class="font-mono text-xs text-right"><%= (@disabled_user_flags.presence || ["—"]).join(", ") %></dd></div>
       </dl>
     </div>
   </div>
 
-  <!-- Social connections -->
-  <div class="bg-white shadow rounded-lg">
-    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-      <h2 class="text-base font-semibold">Conexiones sociales</h2>
+  <!-- ── Memory & Training (full width, hero card) ───────────────────── -->
+  <div class="bg-gradient-to-br from-white to-orange-50 shadow rounded-xl border border-orange-100">
+    <div class="px-6 py-5 border-b border-orange-100 flex items-start justify-between gap-4">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <svg class="w-5 h-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+          </svg>
+          Memoria & entrenamiento
+        </h2>
+        <p class="mt-1 text-sm text-gray-600">
+          Insights extraídos por el avatar a través de chats, audio y redes sociales — almacenados en pgvector (RAG).
+        </p>
+      </div>
+      <div class="flex flex-shrink-0 items-center gap-2">
+        <%= link_to admin_user_memories_path(@user),
+                    class: "inline-flex items-center gap-1.5 rounded-md bg-orange-600 px-3 py-1.5 text-sm font-medium text-white shadow hover:bg-orange-700" do %>
+          Ver todo
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+          </svg>
+        <% end %>
+      </div>
     </div>
-    <table class="min-w-full divide-y divide-gray-200 text-sm">
-      <thead class="bg-gray-50 text-left text-xs text-gray-500 uppercase">
-        <tr><th class="px-6 py-3">Proveedor</th><th class="px-6 py-3">External ID</th><th class="px-6 py-3">Expira</th><th class="px-6 py-3">Items</th><th class="px-6 py-3 text-right">Acciones</th></tr>
-      </thead>
-      <tbody class="divide-y divide-gray-100">
-        <% @social_connections.each do |c| %>
-          <tr>
-            <td class="px-6 py-3 font-medium capitalize"><%= c.provider %></td>
-            <td class="px-6 py-3 font-mono text-xs"><%= c.external_user_id || "—" %></td>
-            <td class="px-6 py-3"><%= c.expires_at&.iso8601 || "—" %></td>
-            <td class="px-6 py-3"><%= c.metadata["item_count"] || "—" %></td>
-            <td class="px-6 py-3 text-right space-x-2">
-              <%= button_to "Re-extraer", extract_admin_user_path(@user, provider: c.provider), method: :post,
-                            class: "text-xs text-orange-600 hover:text-orange-800" %>
-              <%= button_to "Desconectar", disconnect_social_admin_user_path(@user, provider: c.provider), method: :post,
-                            class: "text-xs text-red-600 hover:text-red-800",
-                            data: { turbo_confirm: "¿Desconectar #{c.provider}?" } %>
-            </td>
-          </tr>
-        <% end %>
-        <% if @social_connections.empty? %>
-          <tr><td colspan="5" class="px-6 py-6 text-center text-gray-500">Sin conexiones sociales.</td></tr>
-        <% end %>
-      </tbody>
-    </table>
-  </div>
 
-  <!-- Device tokens -->
-  <div class="bg-white shadow rounded-lg">
-    <div class="px-6 py-4 border-b border-gray-100"><h2 class="text-base font-semibold">Dispositivos push</h2></div>
-    <ul class="divide-y divide-gray-100">
-      <% @device_tokens.each do |d| %>
-        <li class="px-6 py-3 text-sm flex items-center justify-between">
-          <div>
-            <span class="font-medium capitalize"><%= d.platform %></span>
-            <span class="ml-2 font-mono text-xs text-gray-500"><%= d.token[0, 32] %>…</span>
-          </div>
-          <div class="text-xs <%= d.active ? "text-green-600" : "text-gray-400" %>"><%= d.active ? "activo" : "inactivo" %></div>
-        </li>
-      <% end %>
-      <% if @device_tokens.empty? %>
-        <li class="px-6 py-6 text-center text-sm text-gray-500">Sin tokens registrados.</li>
-      <% end %>
-    </ul>
-  </div>
+    <% if @memory_summary[:ok] %>
+      <div class="px-6 py-5 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Total + level -->
+        <div class="rounded-lg bg-white shadow-sm border border-gray-100 p-4">
+          <p class="text-xs uppercase tracking-wide text-gray-500">Total insights</p>
+          <p class="mt-1 text-3xl font-bold text-gray-900"><%= @memory_summary[:total] %></p>
+          <p class="mt-2 text-xs text-gray-500">Knowledge level (FastAPI escala 1–5):
+            <span class="font-medium text-gray-800"><%= @memory_summary[:knowledge_level] || "—" %></span>
+          </p>
+        </div>
 
-  <!-- Recent messages -->
-  <div class="bg-white shadow rounded-lg">
-    <div class="px-6 py-4 border-b border-gray-100"><h2 class="text-base font-semibold">Mensajes recientes</h2></div>
-    <ul class="divide-y divide-gray-100">
-      <% @recent_messages.each do |m| %>
-        <li class="px-6 py-3 text-sm">
-          <div class="flex items-center justify-between">
-            <div>
-              <span class="inline-flex items-center rounded-full bg-<%= m.role == "user" ? "blue" : "green" %>-50 px-2 py-0.5 text-xs font-medium text-<%= m.role == "user" ? "blue" : "green" %>-700 mr-2"><%= m.role %></span>
-              <% if m.proactive_skill.present? %>
-                <span class="mr-2 inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-xs text-purple-700">proactive · <%= m.proactive_skill %></span>
+        <!-- Categories -->
+        <div class="rounded-lg bg-white shadow-sm border border-gray-100 p-4">
+          <p class="text-xs uppercase tracking-wide text-gray-500 mb-2">Por categoría</p>
+          <% if @memory_summary[:categories].any? %>
+            <ul class="space-y-1.5 text-sm">
+              <% @memory_summary[:categories].sort_by { |_, n| -n }.first(8).each do |cat, n| %>
+                <li class="flex items-center justify-between">
+                  <%= link_to admin_user_memories_path(@user, category: cat),
+                              class: "inline-flex items-center gap-1 text-gray-700 hover:text-orange-600" do %>
+                    <span class="inline-block w-2 h-2 rounded-full bg-orange-400"></span>
+                    <span class="capitalize"><%= cat %></span>
+                  <% end %>
+                  <span class="font-mono text-xs text-gray-500"><%= n %></span>
+                </li>
               <% end %>
+            </ul>
+          <% else %>
+            <p class="text-xs text-gray-400">Sin datos.</p>
+          <% end %>
+        </div>
+
+        <!-- Sources -->
+        <div class="rounded-lg bg-white shadow-sm border border-gray-100 p-4">
+          <p class="text-xs uppercase tracking-wide text-gray-500 mb-2">Por fuente</p>
+          <% if @memory_summary[:sources].any? %>
+            <ul class="space-y-1.5 text-sm">
+              <% @memory_summary[:sources].sort_by { |_, n| -n }.first(8).each do |src, n| %>
+                <li class="flex items-center justify-between">
+                  <%= link_to admin_user_memories_path(@user, source: src),
+                              class: "inline-flex items-center gap-1 text-gray-700 hover:text-orange-600" do %>
+                    <span class="inline-block w-2 h-2 rounded-full bg-amber-400"></span>
+                    <span class="font-mono text-xs"><%= src %></span>
+                  <% end %>
+                  <span class="font-mono text-xs text-gray-500"><%= n %></span>
+                </li>
+              <% end %>
+            </ul>
+          <% else %>
+            <p class="text-xs text-gray-400">Sin datos.</p>
+          <% end %>
+        </div>
+      </div>
+    <% else %>
+      <div class="px-6 py-8 text-center">
+        <p class="text-sm text-red-600">FastAPI memoria no respondió. (<code class="font-mono"><%= @memory_summary[:error] %></code>)</p>
+        <p class="mt-1 text-xs text-gray-500">Verifica que el servicio esté corriendo en :8001.</p>
+      </div>
+    <% end %>
+  </div>
+
+  <!-- ── Audio & social (two-column) ──────────────────────────────────── -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+    <!-- Audio sessions -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <h2 class="text-base font-semibold text-gray-900">Sesiones de audio</h2>
+        <span class="text-xs <%= @voice_enrolled ? "text-green-600" : "text-gray-400" %>">
+          <%= @voice_enrolled ? "Voz enrolada" : "Sin voz registrada" %>
+        </span>
+      </div>
+      <ul class="divide-y divide-gray-100">
+        <% @audio_sessions.each do |s| %>
+          <li class="px-6 py-3 text-sm flex items-center justify-between">
+            <div>
+              <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 mr-2"><%= s.status %></span>
+              <span class="font-mono text-xs text-gray-500"><%= s.id.first(8) %>…</span>
             </div>
-            <div class="text-xs text-gray-500"><%= time_ago_in_words(m.created_at) %> ago</div>
-          </div>
-          <div class="mt-1 text-gray-700 line-clamp-2"><%= truncate(m.content, length: 180) %></div>
-        </li>
-      <% end %>
-      <% if @recent_messages.empty? %>
-        <li class="px-6 py-6 text-center text-sm text-gray-500">Sin actividad.</li>
-      <% end %>
-    </ul>
+            <div class="text-xs text-gray-500"><%= time_ago_in_words(s.started_at || s.created_at) %> ago</div>
+          </li>
+        <% end %>
+        <% if @audio_sessions.empty? %>
+          <li class="px-6 py-6 text-center text-sm text-gray-500">Sin sesiones de audio.</li>
+        <% end %>
+      </ul>
+    </div>
+
+    <!-- Social connections -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-6 py-4 border-b border-gray-100">
+        <h2 class="text-base font-semibold text-gray-900">Conexiones sociales</h2>
+      </div>
+      <table class="min-w-full divide-y divide-gray-200 text-sm">
+        <thead class="bg-gray-50 text-left text-xs text-gray-500 uppercase">
+          <tr>
+            <th class="px-6 py-3">Proveedor</th>
+            <th class="px-6 py-3">Items</th>
+            <th class="px-6 py-3">Expira</th>
+            <th class="px-6 py-3 text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          <% @social_connections.each do |c| %>
+            <tr>
+              <td class="px-6 py-3 font-medium capitalize"><%= c.provider %></td>
+              <td class="px-6 py-3 text-gray-600"><%= c.metadata["item_count"] || "—" %></td>
+              <td class="px-6 py-3 text-gray-500 text-xs"><%= c.expires_at ? c.expires_at.strftime("%Y-%m-%d") : "—" %></td>
+              <td class="px-6 py-3 text-right space-x-2">
+                <%= button_to "Re-extraer", extract_admin_user_path(@user, provider: c.provider), method: :post,
+                              class: "text-xs text-orange-600 hover:text-orange-800" %>
+                <%= button_to "Desconectar", disconnect_social_admin_user_path(@user, provider: c.provider), method: :post,
+                              class: "text-xs text-red-600 hover:text-red-800",
+                              data: { turbo_confirm: "¿Desconectar #{c.provider}?" } %>
+              </td>
+            </tr>
+          <% end %>
+          <% if @social_connections.empty? %>
+            <tr><td colspan="4" class="px-6 py-6 text-center text-gray-500">Sin conexiones sociales.</td></tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Devices + recent messages (two-column) ─────────────────────── -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+    <!-- Device tokens -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-6 py-4 border-b border-gray-100">
+        <h2 class="text-base font-semibold text-gray-900">Dispositivos push</h2>
+      </div>
+      <ul class="divide-y divide-gray-100">
+        <% @device_tokens.each do |d| %>
+          <li class="px-6 py-3 text-sm flex items-center justify-between">
+            <div>
+              <span class="font-medium capitalize"><%= d.platform %></span>
+              <span class="ml-2 font-mono text-xs text-gray-500"><%= d.token[0, 24] %>…</span>
+            </div>
+            <div class="text-xs <%= d.active ? "text-green-600" : "text-gray-400" %>"><%= d.active ? "activo" : "inactivo" %></div>
+          </li>
+        <% end %>
+        <% if @device_tokens.empty? %>
+          <li class="px-6 py-6 text-center text-sm text-gray-500">Sin tokens registrados.</li>
+        <% end %>
+      </ul>
+    </div>
+
+    <!-- Recent messages -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-6 py-4 border-b border-gray-100">
+        <h2 class="text-base font-semibold text-gray-900">Mensajes recientes</h2>
+      </div>
+      <ul class="divide-y divide-gray-100">
+        <% @recent_messages.each do |m| %>
+          <li class="px-6 py-3 text-sm">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="inline-flex items-center rounded-full bg-<%= m.role == "user" ? "blue" : "green" %>-50 px-2 py-0.5 text-xs font-medium text-<%= m.role == "user" ? "blue" : "green" %>-700 mr-2"><%= m.role %></span>
+                <% if m.proactive_skill.present? %>
+                  <span class="mr-2 inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-xs text-purple-700">proactive · <%= m.proactive_skill %></span>
+                <% end %>
+              </div>
+              <div class="text-xs text-gray-500"><%= time_ago_in_words(m.created_at) %> ago</div>
+            </div>
+            <div class="mt-1 text-gray-700 line-clamp-2"><%= truncate(m.content, length: 180) %></div>
+          </li>
+        <% end %>
+        <% if @recent_messages.empty? %>
+          <li class="px-6 py-6 text-center text-sm text-gray-500">Sin actividad.</li>
+        <% end %>
+      </ul>
+    </div>
   </div>
 </div>

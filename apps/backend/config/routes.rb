@@ -97,6 +97,11 @@ Rails.application.routes.draw do
         post :extract
         post :disconnect_social
       end
+
+      # Memory / training drill-down (lives in FastAPI; Rails proxies via AiAgentsClient).
+      resources :memories,
+                only:       %i[index show edit update destroy],
+                controller: "user_memories"
     end
 
     # Instagram ingestion panel (replaces the old gln-web-front Next.js).

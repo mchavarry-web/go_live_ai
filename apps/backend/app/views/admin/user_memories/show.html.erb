@@ -1,0 +1,35 @@
+<div class="px-4 sm:px-6 lg:px-8 max-w-3xl space-y-6">
+  <div>
+    <%= link_to "← Volver a memoria", admin_user_memories_path(@user),
+                class: "text-xs text-gray-500 hover:text-gray-700" %>
+    <h1 class="mt-1 text-2xl font-bold text-gray-900">Insight</h1>
+    <p class="mt-1 text-xs font-mono text-gray-500"><%= @insight["id"] %></p>
+  </div>
+
+  <div class="bg-white shadow rounded-lg">
+    <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-2">
+      <span class="inline-flex items-center rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700 capitalize">
+        <%= @insight["category"] %>
+      </span>
+      <span class="font-mono text-xs text-gray-600 px-2 py-0.5 rounded-full bg-gray-100">
+        <%= @insight["source"] %>
+      </span>
+      <span class="ml-auto text-xs text-gray-500">
+        confianza: <span class="font-medium text-gray-800"><%= @insight["confidence"] ? format("%.2f", @insight["confidence"].to_f) : "—" %></span>
+        ·
+        <%= fmt_iso_time(@insight["created_at"]) %>
+      </span>
+    </div>
+    <div class="px-6 py-6 text-base text-gray-900 whitespace-pre-wrap leading-relaxed">
+      <%= @insight["content"] %>
+    </div>
+    <div class="px-6 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
+      <%= link_to "Editar", edit_admin_user_memory_path(@user, @insight["id"]),
+                  class: "inline-flex items-center rounded-md bg-orange-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-orange-700" %>
+      <%= button_to "Eliminar", admin_user_memory_path(@user, @insight["id"]),
+                    method: :delete,
+                    class: "inline-flex items-center rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700",
+                    data: { turbo_confirm: "¿Eliminar este insight?" } %>
+    </div>
+  </div>
+</div>

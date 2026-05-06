@@ -90,6 +90,24 @@ class AiAgentsClient
     self.class.get("/internal/memory/#{user_id}").parsed_response
   end
 
+  def insight_categories(user_id)
+    # → {user_id, counts: {category => n}, total}
+    self.class.get("/internal/memory/#{user_id}/categories").parsed_response
+  end
+
+  def insight_sources(user_id)
+    # → {user_id, sources: {source => n}, total}
+    self.class.get("/internal/memory/#{user_id}/sources").parsed_response
+  end
+
+  def update_insight(user_id:, insight_id:, content:)
+    self.class.patch(
+      "/internal/memory/#{user_id}/insights/#{insight_id}",
+      body: { content: content }.to_json,
+      headers: { "Content-Type" => "application/json" }
+    ).parsed_response
+  end
+
   def delete_insight(user_id:, insight_id:)
     self.class.delete("/internal/memory/#{user_id}/insights/#{insight_id}").code == 204
   end

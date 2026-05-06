@@ -13,6 +13,19 @@ export default {
     userInterfaceStyle: 'dark',
     // First-class platform support: iOS, Android, and web.
     platforms: ['ios', 'android', 'web'],
+    // EAS Update (OTA) — channel is set per build profile in eas.json; the
+    // runtimeVersion uses the appVersion policy so any change to `version`
+    // above forces a new native build (anything else is OTA-eligible).
+    updates: {
+      url: 'https://u.expo.dev/61396ed0-1dde-4553-9f30-d838dd68c28a',
+      // Don't block app start on a slow network — fall back to the
+      // embedded bundle after 8s and apply the new bundle on next launch.
+      fallbackToCacheTimeout: 8000,
+    },
+    runtimeVersion: {
+      policy: 'appVersion',
+    },
+    assetBundlePatterns: ['**/*'],
     // Top-level icon is the iOS source-of-truth (and Android fallback when
     // adaptive-icon is not configured). 1024×1024 PNG, no transparency —
     // EAS resizes for every platform target on build.
