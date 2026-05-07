@@ -73,7 +73,11 @@ class TestUserProfile:
             UserProfile(display_name="", avatar_name="Test")
 
     def test_knowledge_level_bounds(self) -> None:
-        """Test that knowledge_level must be between 1 and 5."""
+        """Test that knowledge_level must be between 1 and 10.
+
+        Range was widened from 1-5 to 1-10 in Phase 9 when Rails'
+        Avatar.knowledge_level (log-scaled, multi-signal) became canonical.
+        """
         with pytest.raises(ValidationError):
             UserProfile(
                 display_name="Test",
@@ -84,7 +88,14 @@ class TestUserProfile:
             UserProfile(
                 display_name="Test",
                 avatar_name="Testy",
-                knowledge_level=6,
+                knowledge_level=11,
+            )
+        # Mid-range values that were illegal under the old 1-5 cap must now pass.
+        for k in (6, 8, 10):
+            UserProfile(
+                display_name="Test",
+                avatar_name="Testy",
+                knowledge_level=k,
             )
 
     def test_default_values(self) -> None:

@@ -17,6 +17,7 @@ Phase 2 will add ``/voice_print`` and ``/identify`` endpoints alongside.
 """
 
 import logging
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
@@ -27,7 +28,10 @@ from app.audio.transcription import transcribe_bytes
 from app.chains.insight_chain import InsightExtractionChain
 from app.llm.providers import get_embeddings
 from app.models.schemas import Insight
+from app.repositories.audio_transcript_repository import AudioTranscriptRepository
+from app.services.event_service import EventService
 from app.services.memory_service import MemoryService
+from app.services.transcript_chunker import chunk_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,31 @@ class AudioInsightsRequest(BaseModel):
     transcript: str = Field(..., min_length=1, max_length=20_000)
     source: str = Field(..., min_length=1, max_length=120)
     context: str = Field(default="", max_length=2_000)
+    timezone: str | None = Field(
+        default=None,
+        max_length=50,
+        description="IANA tz of the user; falls back to America/Lima.",
+    )
+    recorded_at: datetime | None = Field(
+        default=None,
+        description=(
+            "UTC timestamp when the chunk was recorded. Used as RELATIVE_BASE "
+            "for event-extraction date resolution. Falls back to now()."
+        ),
+    )
+    audio_chunk_id: str | None = Field(
+        default=None,
+        max_length=36,
+        description="Rails AudioChunk id for traceability on extracted events.",
+    )
+    audio_session_id: str | None = Field(
+        default=None,
+        max_length=36,
+        description=(
+            "Rails AudioSession id; persisted on transcript chunks so a "
+            "session-level wipe can target them without a join."
+        ),
+    )
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────
@@ -166,22 +195,76 @@ async def extract_audio_insights(
         len(request.context),
     )
     try:
+        import asyncio
+        from datetime import UTC, datetime as _dt
+
         chain = InsightExtractionChain(llm=llm)
+        event_service = EventService(session=session)
+
+        # Phase 14: chunk + embed the transcript in parallel with insight
+        # extraction. Pure CPU + one batched embedding call; cheap.
+        async def _persist_transcript_chunks() -> int:
+            if not request.audio_chunk_id or not request.audio_session_id:
+                # Old Rails clients that don't pass identifiers can still
+                # produce insights/events but won't get retrievable chunks
+                # (we'd have nowhere to scope them).
+                return 0
+            windows = chunk_transcript(request.transcript)
+            if not windows:
+                return 0
+            embeddings_provider = get_embeddings(settings)
+            try:
+                vectors = await embeddings_provider.aembed_documents(windows)
+            except Exception:
+                logger.exception(
+                    "audio.transcript_chunks: embedding failed user_id=%s — skipping pool",
+                    request.user_id,
+                )
+                return 0
+            recorded_at = request.recorded_at or _dt.now(UTC)
+            repo = AudioTranscriptRepository(session)
+            return await repo.bulk_create(
+                user_id=request.user_id,
+                audio_chunk_id=request.audio_chunk_id,
+                audio_session_id=request.audio_session_id,
+                recorded_at=recorded_at,
+                windows=windows,
+                embeddings=list(vectors),
+            )
+
         t_extract = time.perf_counter()
-        extracted = await chain.extract(
-            message=request.transcript,
-            context=request.context,
+        extracted, stored_events, stored_chunks = await asyncio.gather(
+            chain.extract(message=request.transcript, context=request.context),
+            event_service.extract_and_store_from_text(
+                llm=llm,
+                user_id=request.user_id,
+                text=request.transcript,
+                source=request.source,
+                timezone=request.timezone,
+                anchor_at=request.recorded_at,
+                source_message_id=request.audio_chunk_id,
+            ),
+            _persist_transcript_chunks(),
+            return_exceptions=False,
         )
         extract_ms = (time.perf_counter() - t_extract) * 1000
 
         if not extracted:
             logger.info(
-                "audio.insights: no insights produced user_id=%s source=%s extract_ms=%d",
+                "audio.insights: no insights produced user_id=%s source=%s "
+                "events=%d transcript_chunks=%d extract_ms=%d",
                 request.user_id,
                 request.source,
+                len(stored_events),
+                stored_chunks,
                 int(extract_ms),
             )
-            return {"insights": [], "stored": 0}
+            return {
+                "insights": [],
+                "stored": 0,
+                "events": len(stored_events),
+                "transcript_chunks": stored_chunks,
+            }
 
         embeddings = get_embeddings(settings)
         memory_service = MemoryService(session=session, embeddings=embeddings)
@@ -214,11 +297,13 @@ async def extract_audio_insights(
         total_ms = (time.perf_counter() - t0) * 1000
         logger.info(
             "audio.insights: done user_id=%s source=%s extracted=%d stored=%d "
-            "extract_ms=%d store_ms=%d total_ms=%d",
+            "events=%d transcript_chunks=%d extract_ms=%d store_ms=%d total_ms=%d",
             request.user_id,
             request.source,
             len(extracted),
             len(stored),
+            len(stored_events),
+            stored_chunks,
             int(extract_ms),
             int(store_ms),
             int(total_ms),
@@ -226,6 +311,8 @@ async def extract_audio_insights(
         return {
             "insights": [ins.model_dump() for ins in stored_insights],
             "stored": len(stored),
+            "events": len(stored_events),
+            "transcript_chunks": stored_chunks,
             "source": request.source,
         }
 

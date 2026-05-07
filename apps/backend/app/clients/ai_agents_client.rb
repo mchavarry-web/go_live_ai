@@ -22,6 +22,14 @@ class AiAgentsClient
     post_json("/internal/chat/generate", payload, timeout: 90)
   end
 
+  # Wave B.4 (2026-05-06) — durable post-turn learning. Called by
+  # PostTurnLearningJob after the assistant Message has been persisted.
+  # Returns a Hash with insights_new / events_new / persona_notes /
+  # summary_written / slang_calibrated / took_ms keys (LearnResponse).
+  def run_post_turn_learning(payload)
+    post_json("/internal/chat/learn", payload, timeout: 90)
+  end
+
   # Streams /internal/chat/stream. FastAPI emits SSE-framed text chunks
   # ("data: <json>\n\n"). We yield the *plain text* content of each chunk so
   # the caller (ChatGenerationJob) can broadcast it directly over ActionCable.
@@ -157,11 +165,21 @@ class AiAgentsClient
     parsed
   end
 
-  def extract_audio_insights(user_id:, transcript:, source:, context: "")
+  def extract_audio_insights(user_id:, transcript:, source:, context: "", timezone: nil, recorded_at: nil, audio_chunk_id: nil, audio_session_id: nil)
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000.0
+    body = {
+      user_id:           user_id.to_s,
+      transcript:        transcript,
+      source:            source,
+      context:           context,
+      timezone:          timezone,
+      recorded_at:       recorded_at,
+      audio_chunk_id:    audio_chunk_id,
+      audio_session_id:  audio_session_id
+    }.compact
     response = self.class.post(
       "/internal/audio/extract_insights",
-      body: { user_id: user_id.to_s, transcript: transcript, source: source, context: context }.to_json,
+      body: body.to_json,
       headers: { "Content-Type" => "application/json" },
       timeout: 60
     )
@@ -169,10 +187,11 @@ class AiAgentsClient
 
     parsed = response.parsed_response
     stored = parsed.is_a?(Hash) ? parsed["stored"] : nil
+    events = parsed.is_a?(Hash) ? parsed["events"] : nil
     Rails.logger.info(
       "[ai-client] extract_audio_insights user=#{user_id} source=#{source} " \
       "took=#{took_ms.to_i}ms http=#{response.code} stored=#{stored.inspect} " \
-      "transcript_chars=#{transcript.length}"
+      "events=#{events.inspect} transcript_chars=#{transcript.length}"
     )
     if response.code >= 400
       Rails.logger.warn("[ai-client] extract_audio_insights non-2xx body=#{parsed.inspect.first(500)}")

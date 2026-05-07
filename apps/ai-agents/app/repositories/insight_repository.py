@@ -7,7 +7,9 @@ similarity search via pgvector and bulk deletion for GDPR compliance.
 import logging
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select, text
+from datetime import UTC, datetime
+
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import InsightModel
@@ -78,6 +80,8 @@ class InsightRepository(BaseRepository[InsightModel]):
         top_k: int = 5,
         categories: list[str] | None = None,
         sources: list[str] | None = None,
+        max_distance: float | None = None,
+        include_superseded: bool = False,
     ) -> list[InsightModel]:
         """Search for semantically similar insights using pgvector cosine distance.
 
@@ -89,6 +93,12 @@ class InsightRepository(BaseRepository[InsightModel]):
             sources: Optional list of exact source strings to filter by.
                 Applied at the SQL level so the LIMIT only sees matching
                 rows (otherwise rival modes can crowd out the active one).
+            max_distance: Optional cosine-distance ceiling (lower = closer).
+                Wave A.2 (2026-05-06). When set, rows beyond this distance
+                are excluded at the SQL level so the prompt never sees
+                weakly-related insights. Recommended: 0.40 for user facts,
+                0.45 for persona, 0.15 for dedupe lookups. None preserves
+                the original top-k-only behaviour for admin/debug callers.
 
         Returns:
             List of InsightModel instances ordered by cosine similarity.
@@ -98,16 +108,23 @@ class InsightRepository(BaseRepository[InsightModel]):
             InsightModel.user_id == user_id,
             InsightModel.embedding.isnot(None),
         ]
+        if not include_superseded:
+            # Wave B.1 — don't surface superseded/corrected rows. Audit
+            # endpoints that need them pass include_superseded=True.
+            conditions.append(InsightModel.status == "active")
         if categories:
             conditions.append(InsightModel.category.in_(categories))
         if sources:
             conditions.append(InsightModel.source.in_(sources))
 
-        # Use pgvector cosine distance operator (<=>)
+        distance_expr = InsightModel.embedding.cosine_distance(query_embedding)
+        if max_distance is not None:
+            conditions.append(distance_expr <= max_distance)
+
         stmt = (
             select(InsightModel)
             .where(*conditions)
-            .order_by(InsightModel.embedding.cosine_distance(query_embedding))
+            .order_by(distance_expr)
             .limit(top_k)
         )
         result = await self._session.execute(stmt)
@@ -338,6 +355,59 @@ class InsightRepository(BaseRepository[InsightModel]):
         )
         result = await self._session.execute(stmt)
         return {row[0]: row[1] for row in result.all()}
+
+    async def supersede_ids(
+        self,
+        user_id: str,
+        insight_ids: list[str],
+        *,
+        superseded_by_id: str | None = None,
+        status: str = "superseded",
+    ) -> int:
+        """Mark a batch of rows as superseded/corrected.
+
+        Wave B.1 (2026-05-06). Used by ``CorrectionDetectorChain``'s
+        downstream when the user retracts or updates a fact. Rows are
+        not deleted — kept for audit. Retrieval filters them out via
+        ``status='active'``.
+
+        Args:
+            user_id: The user's unique identifier (ownership guard).
+            insight_ids: Rows to flip.
+            superseded_by_id: Optional id of the row that replaced these.
+            status: Target status; either 'superseded' or 'corrected'.
+
+        Returns:
+            Number of rows updated.
+        """
+        if status not in ("superseded", "corrected"):
+            raise ValueError(f"Invalid superseded status: {status!r}")
+        if not insight_ids:
+            return 0
+        stmt = (
+            update(InsightModel)
+            .where(
+                InsightModel.user_id == user_id,
+                InsightModel.id.in_(insight_ids),
+                InsightModel.status == "active",
+            )
+            .values(
+                status=status,
+                superseded_at=datetime.now(UTC),
+                superseded_by_id=superseded_by_id,
+            )
+        )
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        count = result.rowcount or 0
+        if count:
+            logger.info(
+                "Superseded %d insights for user_id=%s status=%s",
+                count,
+                user_id,
+                status,
+            )
+        return count
 
     async def count_by_source(
         self,

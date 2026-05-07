@@ -75,6 +75,44 @@ class Avatar < ApplicationRecord
     message_count_in(active_mode)
   end
 
+  # ── Profile shape exposed to FastAPI (Wave A.1, 2026-05-06) ─────────
+  #
+  # `appearance` and `behavior` are free-form jsonb columns. We extract
+  # the shape FastAPI's `UserProfile` schema expects so the chat-time
+  # prompt can populate the `personality_section`, behavior policy and
+  # interest list. Missing keys return safe empty defaults — the prompt
+  # builders already handle empty lists / nil values.
+  def interests_list
+    Array(appearance&.dig("interests")).map(&:to_s).reject(&:blank?)
+  end
+
+  def values_list
+    Array(appearance&.dig("values")).map(&:to_s).reject(&:blank?)
+  end
+
+  def introvert_extrovert_score
+    val = appearance&.dig("introvert_extrovert")
+    val.is_a?(Numeric) ? val.to_f.clamp(0.0, 1.0) : nil
+  end
+
+  def rational_emotional_score
+    val = appearance&.dig("rational_emotional")
+    val.is_a?(Numeric) ? val.to_f.clamp(0.0, 1.0) : nil
+  end
+
+  # Returns a Hash matching the keys `_build_behavior_section` reads on
+  # the FastAPI side: tone_formality, tone_humor, tone_verbosity (0-1),
+  # language (ISO), preferred_topics + restricted_topics (lists). Returns
+  # nil when the column is empty so the FastAPI side can omit the section.
+  def behavior_settings_payload
+    return nil if behavior.blank?
+    payload = behavior.slice(
+      "tone_formality", "tone_humor", "tone_verbosity",
+      "language", "preferred_topics", "restricted_topics"
+    ).compact
+    payload.presence
+  end
+
   # Atomic, race-free increment of the per-mode counter. Called from
   # MessagesController#create on each user message persistence.
   def increment_mode_message_count!(mode = active_mode)

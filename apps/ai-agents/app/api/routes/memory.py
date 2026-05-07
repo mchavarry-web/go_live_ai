@@ -6,6 +6,7 @@ data deletion and individual insight CRUD.
 
 Endpoints:
     GET    /internal/memory/{user_id}                         - Get user memory summary.
+    GET    /internal/memory/{user_id}/snapshot                - Cross-substrate counts (Phase 18).
     DELETE /internal/memory/{user_id}                         - Delete all user memory (GDPR).
     GET    /internal/memory/{user_id}/categories              - Get insight counts by category.
     DELETE /internal/memory/{user_id}/insights/{insight_id}   - Delete a single insight.
@@ -17,9 +18,16 @@ import logging
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 
 from app.api.deps import DbSessionDep, SettingsDep
 from app.llm.providers import get_embeddings
+from app.models.database import (
+    AudioTranscriptChunkModel,
+    ConversationSummaryModel,
+    InsightModel,
+)
+from app.models.database import UserEventModel as _UserEventModel  # alias to keep imports tidy
 from app.models.schemas import Insight, MemoryResponse
 from app.services.memory_service import MemoryService
 
@@ -52,6 +60,28 @@ class CategoryCountsResponse(BaseModel):
     total: int
 
 
+class MemorySubstrateStats(BaseModel):
+    """Per-substrate counters + last-write timestamps for Phase 18."""
+
+    count: int
+    last_written_at: str | None = None
+
+
+class MemorySnapshotResponse(BaseModel):
+    """Cross-substrate snapshot of every memory pool for one user.
+
+    Used by ``Phase 18`` admin tooling and ad-hoc support flows to see at
+    a glance what's stored, when it was last touched, and where the
+    biggest pools are. No PII content is returned — counts only.
+    """
+
+    user_id: str
+    insights: MemorySubstrateStats
+    user_events: MemorySubstrateStats
+    conversation_summaries: MemorySubstrateStats
+    audio_transcript_chunks: MemorySubstrateStats
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────
 
 
@@ -76,6 +106,54 @@ async def get_user_memory(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Memory retrieval failed. Please try again.",
+        ) from exc
+
+
+@router.get(
+    "/{user_id}/snapshot",
+    response_model=MemorySnapshotResponse,
+    summary="Cross-substrate memory snapshot",
+    description=(
+        "Phase 18 — counters and last-write timestamps for every memory "
+        "pool (insights, user_events, conversation_summaries, "
+        "audio_transcript_chunks). Read-only, no content."
+    ),
+)
+async def get_memory_snapshot(
+    user_id: str,
+    session: DbSessionDep,
+) -> MemorySnapshotResponse:
+    """Return per-substrate counts + last-write timestamps for ``user_id``."""
+
+    async def _stats(model: object, ts_col: str) -> MemorySubstrateStats:
+        ts_attr = getattr(model, ts_col)
+        stmt = select(func.count(), func.max(ts_attr)).where(
+            getattr(model, "user_id") == user_id
+        )
+        result = await session.execute(stmt)
+        count, last_written = result.one()
+        return MemorySubstrateStats(
+            count=int(count or 0),
+            last_written_at=last_written.isoformat() if last_written else None,
+        )
+
+    try:
+        return MemorySnapshotResponse(
+            user_id=user_id,
+            insights=await _stats(InsightModel, "created_at"),
+            user_events=await _stats(_UserEventModel, "created_at"),
+            conversation_summaries=await _stats(
+                ConversationSummaryModel, "created_at"
+            ),
+            audio_transcript_chunks=await _stats(
+                AudioTranscriptChunkModel, "created_at"
+            ),
+        )
+    except Exception as exc:
+        logger.exception("Memory snapshot failed for user_id=%s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Memory snapshot failed.",
         ) from exc
 
 

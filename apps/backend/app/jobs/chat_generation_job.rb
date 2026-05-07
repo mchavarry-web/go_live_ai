@@ -103,6 +103,15 @@ class ChatGenerationJob < ApplicationJob
       type: "done",
       assistant_message_id: assistant.id
     })
+
+    # Wave B.4 — durable post-turn learning. Sidekiq retries handle
+    # transient failures so the learning pass survives worker restarts,
+    # unlike the in-process FastAPI create_task path.
+    PostTurnLearningJob.perform_later(
+      conversation_id:     conversation.id,
+      user_message_id:     user_message.id,
+      assistant_message_id: assistant.id
+    )
   end
 
   private
@@ -126,8 +135,22 @@ class ChatGenerationJob < ApplicationJob
       avatar_name:     avatar&.name.presence || "Avatar",
       country:         user.country,
       timezone:        user.timezone,
-      interests:       [],
-      knowledge_level: [((avatar&.knowledge_level || 1) + 1) / 2, 5].min,
+      last_location:   user.current_location_payload,
+      age_range:       user.try(:age_range),
+      # Wave A.1 (2026-05-06) — interests / values / personality / behavior
+      # were previously hardcoded empty. They live on the Avatar's
+      # `appearance` (interests, values, intro/extro, rational/emotional)
+      # and `behavior` (tone_*, language, *_topics) jsonb columns; the
+      # accessors below pull only the shape FastAPI's `UserProfile`
+      # schema expects and drop blanks so .compact removes empty fields.
+      interests:           avatar&.interests_list,
+      values:              avatar&.values_list,
+      introvert_extrovert: avatar&.introvert_extrovert_score,
+      rational_emotional:  avatar&.rational_emotional_score,
+      behavior_settings:   avatar&.behavior_settings_payload,
+      # Pass canonical Rails 1-10 knowledge_level. FastAPI accepts as-is and
+      # renders as 1-5 in the prompt for stylistic stability.
+      knowledge_level: avatar&.knowledge_level || 1,
       # Behavior mode + the user's lifetime message count *in that mode*.
       # FastAPI uses both: the mode picks the prompt block (Profesional /
       # Amigos / Citas) and the count drives the Citas ramp thresholds.

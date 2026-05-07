@@ -175,6 +175,9 @@ class AvatarChain:
             active_mode=user_profile.get("active_mode", "friends"),
             mode_message_count=user_profile.get("mode_message_count", 0),
             upcoming_events=user_profile.get("upcoming_events"),
+            last_location=user_profile.get("last_location"),
+            prior_summary=user_profile.get("prior_summary"),
+            transcript_quotes=user_profile.get("transcript_quotes"),
         )
 
     @traceable(name="avatar_generate", run_type="chain")

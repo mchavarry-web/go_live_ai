@@ -19,7 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import _get_async_session_maker
 from app.chains.avatar_chain import AvatarChain
-from app.chains.event_extraction_chain import EventExtractionChain, ResolvedEvent
+from app.chains.correction_detector_chain import CorrectionDetectorChain
+# EventExtractionChain is no longer instantiated here — EventService owns
+# the extract+persist pipeline and builds its own chain per invocation.
 from app.chains.insight_chain import InsightExtractionChain
 from app.chains.persona_evolution_chain import PersonaEvolutionChain
 from app.chains.slang_calibrator_chain import SlangCalibratorChain
@@ -35,12 +37,62 @@ from app.models.schemas import (
 )
 from app.prompts.event_humanizer import serialize_events_for_prompt
 from app.prompts.proactive_greeting import build_proactive_system_prompt
+from app.repositories.audio_transcript_repository import AudioTranscriptRepository
 from app.repositories.event_repository import EventRepository
+from app.repositories.user_style_profile_repository import UserStyleProfileRepository
+from app.services.conversation_summary_service import ConversationSummaryService
+from app.services.event_service import EventService
 from app.services.memory_service import MemoryService
+from app.services.search_engagement_service import (
+    SearchContext,
+    SearchEngagementService,
+    bind_chat_request,
+    take_prior_search_for,
+)
 
 _DEFAULT_TIMEZONE = "America/Lima"
 _UPCOMING_EVENTS_HORIZON_DAYS = 14
 _UPCOMING_EVENTS_LIMIT = 10
+
+# Wave A.2 (2026-05-06) — cosine-distance ceilings for chat-time insight
+# retrieval. `text-embedding-3-small` cosine distance distributions place
+# topical-but-only-loosely-related rows around 0.40–0.50, so we cap at 0.40
+# for user facts (we don't want a stale `health` insight surfacing when
+# the user is asking about work) and a slightly looser 0.45 for persona
+# notes (which are paraphrased and naturally land further from the query).
+_USER_INSIGHT_MAX_DISTANCE = 0.40
+_PERSONA_INSIGHT_MAX_DISTANCE = 0.45
+
+# Strict ceiling for pre-insert dedupe lookups (Wave A.3). At ~0.15 cosine
+# distance, content is essentially the same paraphrased — the canonical
+# "user likes coffee" / "user enjoys coffee" pair lands at 0.10–0.13. We
+# keep the bar tight to avoid suppressing genuinely new nuance.
+_INSIGHT_DEDUPE_MAX_DISTANCE = 0.15
+
+# Phase 13 history truncation: when a prior summary covers everything older
+# than this tail, the chat-time prompt only sends the last N entries to the
+# avatar. The summary picks up the slack as medium-term memory.
+_SUMMARY_KEEP_TAIL_ENTRIES = 10
+_SUMMARY_TRUNCATE_THRESHOLD = 20
+
+
+def _maybe_truncate_history(
+    conversation_history: list[dict[str, str]] | None,
+    *,
+    prior_summary: str | None,
+) -> list[dict[str, str]] | None:
+    """Trim conversation history to the last N entries when a summary covers the rest.
+
+    Truncation only kicks in when both:
+    - a non-empty ``prior_summary`` exists (so older context isn't lost), AND
+    - the history is longer than ``_SUMMARY_TRUNCATE_THRESHOLD``.
+    Otherwise return the input unchanged.
+    """
+    if not conversation_history or not prior_summary:
+        return conversation_history
+    if len(conversation_history) <= _SUMMARY_TRUNCATE_THRESHOLD:
+        return conversation_history
+    return conversation_history[-_SUMMARY_KEEP_TAIL_ENTRIES:]
 
 _SLANG_CALIBRATION_INTERVAL = 5
 
@@ -80,7 +132,7 @@ class ChatService:
         self.insight_chain = InsightExtractionChain(llm=llm)
         self.persona_chain = PersonaEvolutionChain(llm=llm)
         self.slang_calibrator = SlangCalibratorChain(llm=llm)
-        self.event_chain = EventExtractionChain(llm=llm)
+        self.correction_detector = CorrectionDetectorChain(llm=llm)
         self.settings = settings
         self.llm = llm
         self.embeddings = embeddings
@@ -93,6 +145,8 @@ class ChatService:
         formality_level: float | None = None,
         custom_expressions: list[str] | None = None,
         upcoming_events: list | None = None,
+        prior_summary: str | None = None,
+        transcript_quotes: list[str] | None = None,
     ) -> dict:
         """Extract user profile dict from the API request.
 
@@ -128,13 +182,17 @@ class ChatService:
             "introvert_extrovert": profile.introvert_extrovert,
             "rational_emotional": profile.rational_emotional,
             "values": list(profile.values) if profile.values else None,
+            "behavior_settings": dict(profile.behavior_settings) if profile.behavior_settings else None,
             "social_data": dict(request.social_data) if request.social_data else None,
             "health_data": dict(request.health_data) if request.health_data else None,
+            "last_location": dict(profile.last_location) if profile.last_location else None,
             "insights": insights,
             "persona_insights": persona_insights,
             "formality_level": formality_level,
             "custom_expressions": custom_expressions,
             "upcoming_events": events_payload,
+            "prior_summary": prior_summary,
+            "transcript_quotes": transcript_quotes or [],
             "active_mode": profile.active_mode,
             "mode_message_count": profile.mode_message_count,
         }
@@ -173,6 +231,7 @@ class ChatService:
                 query=message,
                 top_k=10,
                 categories=user_categories,
+                max_distance=_USER_INSIGHT_MAX_DISTANCE,
             )
             if relevant:
                 return [ins.content for ins in relevant]
@@ -232,6 +291,7 @@ class ChatService:
                 top_k=5,
                 categories=[InsightCategory.AVATAR_EVOLUTION.value],
                 sources=allowed_sources,
+                max_distance=_PERSONA_INSIGHT_MAX_DISTANCE,
             )
             if not relevant:
                 return None
@@ -241,6 +301,75 @@ class ChatService:
             logger.warning(
                 "Failed to retrieve persona insights for user_id=%s",
                 user_id,
+                exc_info=True,
+            )
+            return None
+
+    async def _get_relevant_transcript_quotes(
+        self,
+        user_id: str,
+        message: str,
+        session: Optional[AsyncSession] = None,
+    ) -> list[str]:
+        """Semantic search over the user's audio-transcript chunk pool (Phase 14).
+
+        Distinct from ``_get_memory_insights`` which retrieves derived
+        summaries; this returns verbatim quotes from what the user said
+        in their journal/recordings. Used for "what did I say about X"
+        type avatar context. Strict cosine threshold (0.25) keeps
+        tangentially-related quotes from leaking in.
+
+        Returns at most 3 quote strings, or [] when no embedding provider,
+        no session, no qualifying matches, or any error.
+        """
+        if not session or not self.embeddings:
+            return []
+        try:
+            query_embedding = await self.embeddings.aembed_query(message)
+        except Exception:
+            logger.warning(
+                "transcript-quote query embedding failed user_id=%s",
+                user_id,
+                exc_info=True,
+            )
+            return []
+        try:
+            repo = AudioTranscriptRepository(session)
+            rows = await repo.search_similar(
+                user_id,
+                query_embedding,
+                top_k=3,
+                max_distance=0.25,
+            )
+            return [row.text for row in rows if row.text]
+        except Exception:
+            logger.warning(
+                "Failed to retrieve transcript quotes user_id=%s",
+                user_id,
+                exc_info=True,
+            )
+            return []
+
+    async def _get_prior_summary(
+        self,
+        conversation_id: str | None,
+        session: Optional[AsyncSession] = None,
+    ) -> str | None:
+        """Fetch the latest non-superseded summary for the conversation.
+
+        Falls back to None on missing session, missing conversation_id, or
+        repository error — the prompt builder simply omits the section.
+        """
+        if not session or not conversation_id:
+            return None
+        try:
+            return await ConversationSummaryService(session).latest_summary_text(
+                conversation_id
+            )
+        except Exception:
+            logger.warning(
+                "Failed to fetch prior summary for conversation_id=%s",
+                conversation_id,
                 exc_info=True,
             )
             return None
@@ -292,7 +421,12 @@ class ChatService:
         user_id: str,
         session: Optional[AsyncSession] = None,
     ) -> tuple[float | None, list[str] | None]:
-        """Retrieve the latest language style insight for this user.
+        """Retrieve the user's language style profile.
+
+        Wave B.3 (2026-05-06) — prefer the structured ``user_style_profiles``
+        row when present; fall back to the legacy JSON-blob `language_style`
+        insight so older users without a structured row still get prompt
+        personalization.
 
         Args:
             user_id: The user's unique identifier.
@@ -300,11 +434,26 @@ class ChatService:
 
         Returns:
             Tuple of (formality_level, custom_expressions). Both may be
-            None if no language style insight exists.
+            None if no style data exists.
         """
-        if not session or not self.embeddings:
+        if not session:
             return None, None
 
+        # Prefer the typed table.
+        try:
+            profile = await UserStyleProfileRepository(session).get_for_user(user_id)
+        except Exception:
+            profile = None
+            logger.warning(
+                "Failed to fetch user style profile for user_id=%s — falling back",
+                user_id,
+                exc_info=True,
+            )
+        if profile is not None and (profile.formality_level is not None or profile.custom_expressions):
+            return profile.formality_level, profile.custom_expressions or None
+
+        if not self.embeddings:
+            return None, None
         try:
             memory_service = MemoryService(
                 session=session,
@@ -366,6 +515,28 @@ class ChatService:
                 session=session,
                 embeddings=self.embeddings,
             )
+            # Wave B.3 — also write the structured profile row. Reads
+            # prefer this table; the legacy insight write below is kept
+            # for back-compat until the table fully replaces it.
+            try:
+                await UserStyleProfileRepository(session).upsert_core(
+                    user_id=user_id,
+                    formality_level=profile.formality_level,
+                    custom_expressions=profile.custom_expressions,
+                    emoji_frequency=profile.emoji_frequency,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to upsert user_style_profile for user_id=%s — "
+                    "legacy insight will still be written",
+                    user_id,
+                    exc_info=True,
+                )
+            # dedupe=False — language_style content is a JSON blob whose
+            # cosine distance is dominated by the JSON shape, not by the
+            # actual style values. Two calibrations with different
+            # formality readings would falsely register as near-dupes.
+            # Slang is overwrite-style memory anyway (latest wins).
             await memory_service.store_insights(
                 user_id=user_id,
                 insights=[
@@ -378,6 +549,7 @@ class ChatService:
                     }
                 ],
                 source="slang_calibration",
+                dedupe=False,
             )
             logger.info(
                 "Stored slang calibration for user_id=%s: formality=%.2f",
@@ -538,6 +710,41 @@ class ChatService:
             )
             return []
 
+    async def _detect_and_apply_corrections(
+        self,
+        *,
+        user_id: str,
+        message: str,
+        session: Optional[AsyncSession],
+    ) -> int:
+        """Wave B.1 — detect retractions and supersede matching insights.
+
+        Runs FIRST in the post-turn batch so insight extraction doesn't
+        re-extract a fact the user just retracted. Always best-effort:
+        failures yield 0 superseded and never block the chat flow.
+        """
+        if not session or not self.embeddings:
+            return 0
+        try:
+            signals = await self.correction_detector.detect(message)
+        except Exception:
+            logger.exception(
+                "Correction detection chain failed user_id=%s — skipping",
+                user_id,
+            )
+            return 0
+        if not signals:
+            return 0
+        memory_service = MemoryService(session=session, embeddings=self.embeddings)
+        try:
+            return await memory_service.apply_corrections(user_id, signals)
+        except Exception:
+            logger.exception(
+                "Correction application failed user_id=%s — skipping",
+                user_id,
+            )
+            return 0
+
     async def _extract_and_store_events(
         self,
         *,
@@ -548,81 +755,36 @@ class ChatService:
         session: Optional[AsyncSession],
         assistant_response: Optional[str] = None,
     ) -> list[UserEvent]:
-        """Extract dated commitments from the turn and persist them.
+        """Extract dated commitments from the chat turn and persist them.
 
-        Mirrors ``_extract_and_store_insights``: runs after the streamed
-        response has been delivered, fails closed (returns empty list)
-        on any error so the chat experience is never affected.
-
-        Dedupes via ``EventRepository.find_duplicate`` — repeated mentions
-        of the same appointment within ±60 minutes don't create new rows.
+        Thin wrapper around ``EventService.extract_and_store_from_text`` so
+        chat / audio / social ingest all share the same dedupe loop and
+        confidence floor. Source is always ``"conversation"``.
 
         Args:
             user_id: The user's unique identifier.
             message: The user's message text.
-            timezone: IANA tz name (falls back to ``"America/Lima"``).
+            timezone: IANA tz name (``"America/Lima"`` fallback).
             message_created_at: When the user sent the message (UTC).
-                Falls back to "now" if missing — degrades gracefully for
-                old Rails clients that don't pass the field yet.
+                Falls back to "now" if missing.
             session: Optional database session.
-            assistant_response: Optional assistant turn text.
+            assistant_response: Optional assistant turn text used by the
+                chain to capture confirmations.
 
         Returns:
             List of newly persisted ``UserEvent`` schemas.
         """
         if not session:
             return []
-
-        tz = timezone or _DEFAULT_TIMEZONE
-        now_utc = datetime.now(UTC)
-        msg_at = message_created_at or now_utc
-
-        try:
-            resolved = await self.event_chain.extract(
-                message=message,
-                now_utc=now_utc,
-                timezone=tz,
-                message_created_at=msg_at,
-                assistant_response=assistant_response,
-            )
-            if not resolved:
-                return []
-
-            repo = EventRepository(session)
-            stored: list[UserEvent] = []
-            for ev in resolved:
-                dup = await repo.find_duplicate(
-                    user_id,
-                    title=ev.title,
-                    occurs_at=ev.occurs_at,
-                )
-                if dup is not None:
-                    logger.debug(
-                        "Skipping duplicate event for user_id=%s: %r at %s",
-                        user_id,
-                        ev.title,
-                        ev.occurs_at.isoformat(),
-                    )
-                    continue
-                row = await repo.create_event(
-                    user_id=user_id,
-                    title=ev.title,
-                    occurs_at=ev.occurs_at,
-                    occurs_at_has_time=ev.occurs_at_has_time,
-                    raw_text=ev.raw_text,
-                    source="conversation",
-                    source_message_id=None,
-                    confidence=ev.confidence,
-                    timezone=tz,
-                )
-                stored.append(UserEvent.model_validate(row))
-            return stored
-        except Exception:
-            logger.exception(
-                "Event extraction/storage failed for user_id=%s",
-                user_id,
-            )
-            return []
+        return await EventService(session).extract_and_store_from_text(
+            llm=self.llm,
+            user_id=user_id,
+            text=message,
+            source="conversation",
+            timezone=timezone,
+            anchor_at=message_created_at,
+            assistant_response=assistant_response,
+        )
 
     @traceable(name="generate_chat_response", run_type="chain")
     async def generate_response(
@@ -653,6 +815,21 @@ class ChatService:
             request.conversation_id,
         )
 
+        # Bind the request identity so any web_search tool calls during
+        # this turn can stash their query into the engagement-cache
+        # without needing user/conv args plumbed through the agent.
+        bind_chat_request(
+            user_id=request.user_id,
+            conversation_id=request.conversation_id,
+        )
+
+        # Capture any prior turn's search context BEFORE the agent runs
+        # this turn — otherwise a fresh stash would overwrite it.
+        prior_search = await take_prior_search_for(
+            user_id=request.user_id,
+            conversation_id=request.conversation_id,
+        )
+
         # Step 1: Retrieve all memory context in parallel
         mem = await _gather_memory(
             self,
@@ -660,6 +837,7 @@ class ChatService:
             request.message,
             session,
             active_mode=request.user_profile.active_mode,
+            conversation_id=request.conversation_id,
         )
 
         # Step 2: Build user profile with memory context
@@ -670,14 +848,21 @@ class ChatService:
             formality_level=mem.formality_level,
             custom_expressions=mem.custom_expressions,
             upcoming_events=mem.upcoming_events,
+            prior_summary=mem.prior_summary,
+            transcript_quotes=mem.transcript_quotes,
         )
 
-        # Step 3: Generate response
+        # Step 3: Generate response. When a prior summary is in play, the
+        # tail-only history slice keeps the prompt token budget bounded.
+        history_for_chain = _maybe_truncate_history(
+            request.conversation_history,
+            prior_summary=mem.prior_summary,
+        )
         try:
             result = await self.avatar_chain.generate(
                 message=request.message,
                 user_profile=user_profile,
-                conversation_history=request.conversation_history or None,
+                conversation_history=history_for_chain or None,
             )
         except Exception:
             logger.exception(
@@ -697,6 +882,14 @@ class ChatService:
         history = request.conversation_history or []
         turn_count = sum(1 for e in history if e.get("role") == "user")
         should_calibrate = turn_count > 0 and turn_count % _SLANG_CALIBRATION_INTERVAL == 0
+
+        # Step 4a (Wave B.1): apply corrections FIRST so insight extraction
+        # below doesn't re-add facts the user just retracted.
+        await self._detect_and_apply_corrections(
+            user_id=request.user_id,
+            message=request.message,
+            session=session,
+        )
 
         post_turn_tasks = [
             self._extract_and_store_insights(
@@ -729,6 +922,18 @@ class ChatService:
                     user_id=request.user_id,
                     conversation_history=history,
                     session=session,
+                )
+            )
+        if prior_search is not None and self.embeddings:
+            post_turn_tasks.append(
+                SearchEngagementService(
+                    session=session, embeddings=self.embeddings
+                ).maybe_capture(
+                    llm=self.llm,
+                    user_id=request.user_id,
+                    conversation_id=request.conversation_id,
+                    user_message=request.message,
+                    prior_search=prior_search,
                 )
             )
 
@@ -956,6 +1161,16 @@ class ChatService:
 
         ai_received_at = _now_iso()
 
+        # Bind for search-engagement stash (Phase 15).
+        bind_chat_request(
+            user_id=request.user_id,
+            conversation_id=request.conversation_id,
+        )
+        prior_search = await take_prior_search_for(
+            user_id=request.user_id,
+            conversation_id=request.conversation_id,
+        )
+
         # Retrieve memory context
         mem = await _gather_memory(
             self,
@@ -963,6 +1178,7 @@ class ChatService:
             request.message,
             session,
             active_mode=request.user_profile.active_mode,
+            conversation_id=request.conversation_id,
         )
 
         user_profile = self._extract_user_profile(
@@ -972,6 +1188,13 @@ class ChatService:
             formality_level=mem.formality_level,
             custom_expressions=mem.custom_expressions,
             upcoming_events=mem.upcoming_events,
+            prior_summary=mem.prior_summary,
+            transcript_quotes=mem.transcript_quotes,
+        )
+
+        history_for_stream = _maybe_truncate_history(
+            request.conversation_history,
+            prior_summary=mem.prior_summary,
         )
 
         logger.info(
@@ -986,7 +1209,7 @@ class ChatService:
             async for token in self.avatar_chain.generate_stream(
                 message=request.message,
                 user_profile=user_profile,
-                conversation_history=request.conversation_history or None,
+                conversation_history=history_for_stream or None,
             ):
                 if ai_first_token_at is None and token:
                     ai_first_token_at = _now_iso()
@@ -1024,22 +1247,189 @@ class ChatService:
         turn_count = sum(1 for e in history if e.get("role") == "user")
         should_calibrate = turn_count > 0 and turn_count % _SLANG_CALIBRATION_INTERVAL == 0
 
-        asyncio.create_task(
-            self._run_post_turn_tasks(
-                user_id=request.user_id,
-                user_message=request.message,
-                assistant_response=full_response,
-                memory_insights=mem.memory_insights,
-                persona_insights=mem.persona_insights,
-                conversation_history=history,
-                should_calibrate=should_calibrate,
-                active_mode=request.user_profile.active_mode,
-                timezone=request.user_profile.timezone,
-                message_created_at=request.message_created_at,
+        # Wave B.4 — post-turn learning has two execution modes:
+        #   - Inline (legacy, default): asyncio.create_task fires-and-forgets.
+        #     Fast, but lost on worker restart.
+        #   - Durable: Rails enqueues a Sidekiq job after the assistant
+        #     Message is persisted that calls /internal/chat/learn.
+        # The flag toggles only the inline kick; the durable path is
+        # always reachable via the public endpoint.
+        if self.settings.post_turn_inline:
+            asyncio.create_task(
+                self._run_post_turn_tasks(
+                    user_id=request.user_id,
+                    user_message=request.message,
+                    assistant_response=full_response,
+                    memory_insights=mem.memory_insights,
+                    persona_insights=mem.persona_insights,
+                    conversation_history=history,
+                    should_calibrate=should_calibrate,
+                    active_mode=request.user_profile.active_mode,
+                    timezone=request.user_profile.timezone,
+                    message_created_at=request.message_created_at,
+                    conversation_id=request.conversation_id,
+                    display_name=request.user_profile.display_name,
+                    turn_count=turn_count,
+                    prior_search=prior_search,
+                )
             )
-        )
 
         yield "data: [DONE]\n\n"
+
+    async def learn(
+        self,
+        *,
+        session: AsyncSession,
+        user_id: str,
+        conversation_id: str,
+        user_message: str,
+        assistant_response: str | None,
+        conversation_history: list[dict[str, str]],
+        active_mode: str = "friends",
+        display_name: str = "el usuario",
+        turn_count: int = 0,
+        timezone: str | None = None,
+        message_created_at: datetime | None = None,
+    ) -> dict[str, int | bool]:
+        """Wave B.4 — durable post-turn learning entrypoint.
+
+        Used by the ``/internal/chat/learn`` HTTP endpoint when Rails owns
+        durability via Sidekiq. Re-fetches the memory pools the
+        in-process path captured during ``generate_stream`` so the chains
+        have the same context.
+
+        Returns a dict of counts safe to persist on the assistant Message
+        metadata for observability.
+        """
+        import time
+
+        t0 = time.perf_counter()
+        # Re-derive the gather-memory pools so chains have prior context.
+        try:
+            mem_insights = await self._get_memory_insights(
+                user_id=user_id, message=user_message, session=session
+            )
+        except Exception:
+            mem_insights = None
+        try:
+            persona_insights = await self._get_persona_insights(
+                user_id=user_id,
+                message=user_message,
+                session=session,
+                active_mode=active_mode,
+            )
+        except Exception:
+            persona_insights = None
+
+        # Apply corrections first.
+        superseded = await self._detect_and_apply_corrections(
+            user_id=user_id, message=user_message, session=session
+        )
+
+        should_calibrate = (
+            turn_count > 0 and turn_count % _SLANG_CALIBRATION_INTERVAL == 0
+        )
+        prior_search = await take_prior_search_for(
+            user_id=user_id, conversation_id=conversation_id
+        )
+
+        tasks = [
+            self._extract_and_store_insights(
+                user_id=user_id,
+                message=user_message,
+                existing_insights=mem_insights,
+                session=session,
+                assistant_response=assistant_response,
+            ),
+            self._evolve_and_store_persona(
+                user_id=user_id,
+                user_message=user_message,
+                assistant_response=assistant_response or "",
+                prior_persona=persona_insights,
+                session=session,
+                active_mode=active_mode,
+            ),
+            self._extract_and_store_events(
+                user_id=user_id,
+                message=user_message,
+                timezone=timezone,
+                message_created_at=message_created_at,
+                session=session,
+                assistant_response=assistant_response,
+            ),
+        ]
+        if should_calibrate:
+            tasks.append(
+                self._calibrate_and_store_slang(
+                    user_id=user_id,
+                    conversation_history=conversation_history,
+                    session=session,
+                )
+            )
+        if conversation_id and ConversationSummaryService.should_summarize(
+            turn_count=turn_count
+        ):
+            tasks.append(
+                ConversationSummaryService(session).summarize_if_due(
+                    llm=self.llm,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    conversation_history=conversation_history,
+                    display_name=display_name,
+                    turn_count=turn_count,
+                )
+            )
+        if conversation_id and self.embeddings and prior_search is not None:
+            tasks.append(
+                SearchEngagementService(
+                    session=session, embeddings=self.embeddings
+                ).maybe_capture(
+                    llm=self.llm,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    user_message=user_message,
+                    prior_search=prior_search,
+                )
+            )
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # results[0] is the insight list; subsequent entries are persona /
+        # events / (optional) slang / (optional) summary / (optional) search.
+        insights_result = results[0] if results else []
+        events_result = results[2] if len(results) > 2 else []
+        persona_result = results[1] if len(results) > 1 else []
+        summary_written = False
+        slang_calibrated = False
+        # Walk the optional tail and identify which kind of result each is
+        # so callers get accurate counts even when ordering shifts.
+        idx = 3
+        if should_calibrate and idx < len(results):
+            slang_calibrated = not isinstance(results[idx], BaseException)
+            idx += 1
+        if (
+            conversation_id
+            and ConversationSummaryService.should_summarize(turn_count=turn_count)
+            and idx < len(results)
+        ):
+            summary_written = bool(results[idx]) and not isinstance(
+                results[idx], BaseException
+            )
+        took_ms = int((time.perf_counter() - t0) * 1000)
+        return {
+            "insights_new": (
+                len(insights_result) if isinstance(insights_result, list) else 0
+            ),
+            "insights_superseded": superseded,
+            "events_new": (
+                len(events_result) if isinstance(events_result, list) else 0
+            ),
+            "persona_notes": (
+                len(persona_result) if isinstance(persona_result, list) else 0
+            ),
+            "summary_written": summary_written,
+            "slang_calibrated": slang_calibrated,
+            "took_ms": took_ms,
+        }
 
     async def _run_post_turn_tasks(
         self,
@@ -1054,6 +1444,10 @@ class ChatService:
         active_mode: str = "friends",
         timezone: str | None = None,
         message_created_at: datetime | None = None,
+        conversation_id: str | None = None,
+        display_name: str = "el usuario",
+        turn_count: int = 0,
+        prior_search: SearchContext | None = None,
     ) -> None:
         """Run insight extraction, persona evolution, slang calibration, and
         event extraction in a fresh DB session so they survive the
@@ -1062,6 +1456,13 @@ class ChatService:
         session_maker = _get_async_session_maker(self.settings)
         async with session_maker() as session:
             try:
+                # Wave B.1 — corrections first, so insight extraction
+                # doesn't re-add facts the user just retracted in this turn.
+                await self._detect_and_apply_corrections(
+                    user_id=user_id,
+                    message=user_message,
+                    session=session,
+                )
                 tasks = [
                     self._extract_and_store_insights(
                         user_id=user_id,
@@ -1095,6 +1496,31 @@ class ChatService:
                             session=session,
                         )
                     )
+                if conversation_id and ConversationSummaryService.should_summarize(
+                    turn_count=turn_count
+                ):
+                    tasks.append(
+                        ConversationSummaryService(session).summarize_if_due(
+                            llm=self.llm,
+                            user_id=user_id,
+                            conversation_id=conversation_id,
+                            conversation_history=conversation_history,
+                            display_name=display_name,
+                            turn_count=turn_count,
+                        )
+                    )
+                if conversation_id and self.embeddings and prior_search is not None:
+                    tasks.append(
+                        SearchEngagementService(
+                            session=session, embeddings=self.embeddings
+                        ).maybe_capture(
+                            llm=self.llm,
+                            user_id=user_id,
+                            conversation_id=conversation_id,
+                            user_message=user_message,
+                            prior_search=prior_search,
+                        )
+                    )
                 await asyncio.gather(*tasks, return_exceptions=True)
             except Exception:
                 logger.exception(
@@ -1111,6 +1537,8 @@ class _MemoryContext:
         "formality_level",
         "custom_expressions",
         "upcoming_events",
+        "prior_summary",
+        "transcript_quotes",
     )
 
     def __init__(
@@ -1120,12 +1548,16 @@ class _MemoryContext:
         formality_level: float | None = None,
         custom_expressions: list[str] | None = None,
         upcoming_events: list | None = None,
+        prior_summary: str | None = None,
+        transcript_quotes: list[str] | None = None,
     ) -> None:
         self.memory_insights = memory_insights
         self.persona_insights = persona_insights
         self.formality_level = formality_level
         self.custom_expressions = custom_expressions
         self.upcoming_events = upcoming_events or []
+        self.prior_summary = prior_summary
+        self.transcript_quotes = transcript_quotes or []
 
 
 async def _gather_memory(
@@ -1134,8 +1566,12 @@ async def _gather_memory(
     message: str,
     session: Optional[AsyncSession],
     active_mode: str = "friends",
+    conversation_id: str | None = None,
 ) -> _MemoryContext:
-    """Fetch user insights, persona notes, language style, and upcoming events.
+    """Fetch insights, persona notes, language style, events, and prior summary.
+
+    Five concurrent retrievals; each degrades to a None/empty default on
+    failure so a single subsystem outage cannot break chat generation.
 
     Args:
         service: The ChatService instance.
@@ -1144,6 +1580,8 @@ async def _gather_memory(
         session: Optional database session.
         active_mode: Current avatar mode; passed through to persona retrieval
             so notes from other modes don't leak into this turn's context.
+        conversation_id: Rails Conversation id; used to fetch the latest
+            non-superseded summary for Phase 13.
 
     Returns:
         A _MemoryContext with all gathered data.
@@ -1155,6 +1593,10 @@ async def _gather_memory(
         ),
         service._get_language_style(user_id=user_id, session=session),
         service._get_upcoming_events(user_id=user_id, session=session),
+        service._get_prior_summary(conversation_id=conversation_id, session=session),
+        service._get_relevant_transcript_quotes(
+            user_id=user_id, message=message, session=session
+        ),
         return_exceptions=True,
     )
     memory_insights = results[0] if not isinstance(results[0], BaseException) else None
@@ -1166,6 +1608,8 @@ async def _gather_memory(
         formality_level, custom_expressions = results[2]
 
     upcoming_events = results[3] if not isinstance(results[3], BaseException) else []
+    prior_summary = results[4] if not isinstance(results[4], BaseException) else None
+    transcript_quotes = results[5] if not isinstance(results[5], BaseException) else []
 
     return _MemoryContext(
         memory_insights=memory_insights,
@@ -1173,4 +1617,6 @@ async def _gather_memory(
         formality_level=formality_level,
         custom_expressions=custom_expressions,
         upcoming_events=upcoming_events,
+        prior_summary=prior_summary,
+        transcript_quotes=transcript_quotes,
     )

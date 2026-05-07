@@ -333,6 +333,204 @@ def _build_language_style_section(
     return "\n".join(lines)
 
 
+def _build_transcript_quotes_section(transcript_quotes: list[str] | None) -> str:
+    """Surface verbatim quotes from the user's audio journal (Phase 14).
+
+    Distinct from the insights section which surfaces *derived facts*;
+    this section surfaces *what the user actually said* in their voice
+    journal so the avatar can reference it without inventing language.
+
+    Args:
+        transcript_quotes: Raw quote strings, or None.
+
+    Returns:
+        A short labelled block, or empty string when no quotes qualified.
+    """
+    if not transcript_quotes:
+        return ""
+    lines = ["FRAGMENTOS RELEVANTES DE LO QUE HA DICHO:"]
+    for quote in transcript_quotes:
+        clean = quote.strip().replace("\n", " ")
+        if len(clean) > 280:
+            clean = clean[:277].rstrip() + "..."
+        lines.append(f'- "{clean}"')
+    lines.append(
+        "Podés hacer referencia a estos contenidos de manera natural, "
+        "sin citar literalmente ni decir 'dijiste exactamente'."
+    )
+    return "\n".join(lines)
+
+
+def _build_summary_section(prior_summary: str | None) -> str:
+    """Build the medium-term conversation-summary section (Phase 13).
+
+    Surfaced when ``ConversationSummaryService.latest_summary_text`` returns
+    a non-empty value. Inserted between the long-term insights pool and
+    the short-term recent history sent to the chain — fills the
+    "what was discussed earlier in this thread" gap that long
+    conversations otherwise lose.
+
+    Args:
+        prior_summary: Stored summary text, or None.
+
+    Returns:
+        A formatted block, or empty string when there's nothing to surface.
+    """
+    if not prior_summary or not prior_summary.strip():
+        return ""
+    return (
+        "RESUMEN DE LA CONVERSACIÓN HASTA AHORA:\n"
+        f"{prior_summary.strip()}\n"
+        "Usá este resumen como contexto sin repetirlo verbatim. La memoria "
+        "de mediano plazo está acá; los últimos turnos van por separado."
+    )
+
+
+def _build_agent_identity_section(
+    agent_identity: str | None, display_name: str
+) -> str:
+    """Build the agent-identity / representation section (Wave C.1, 2026-05-06).
+
+    The avatar's posture changes when it operates as something other
+    than the default conversational companion. Modes:
+
+    - ``companion`` — the historical default. The avatar is "your
+      avatar, not you". Section is omitted.
+    - ``representative`` — the avatar acts as the user's authorized
+      proxy for read-only capabilities.
+    - ``draft`` — the avatar drafts actions; the user must approve.
+    - ``autopilot`` — pre-approved write actions for specific
+      capabilities. Should never be silent.
+
+    See ``docs/autonomous_agent_design.md`` for the full policy.
+    """
+    if not agent_identity or agent_identity == "companion":
+        return ""
+    label_by_mode = {
+        "representative": (
+            "MODO REPRESENTANTE: estás operando como el representante autorizado de "
+            f"{display_name}. Usá las herramientas de lectura permitidas; cualquier "
+            "accion que requiera escribir o tener efectos externos requiere aprobacion previa."
+        ),
+        "draft": (
+            f"MODO BORRADOR: estás preparando acciones para que {display_name} las apruebe "
+            "antes de ejecutarse. NO ejecutes herramientas con efectos externos. "
+            "Devolvé propuestas estructuradas y esperá aprobacion."
+        ),
+        "autopilot": (
+            f"MODO PILOTO AUTOMATICO: tenés permiso pre-aprobado para una accion especifica "
+            f"de {display_name}. Limitate al alcance autorizado y registrá la accion. "
+            "Cualquier desviacion fuera del alcance debe volver a modo BORRADOR."
+        ),
+    }
+    text = label_by_mode.get(agent_identity)
+    if text is None:
+        return ""
+    return text
+
+
+def _build_location_section(last_location: dict[str, float | str] | None) -> str:
+    """Build the reactive-location section for the system prompt.
+
+    Privacy-gated by Rails (``User.share_location_with_avatar``). When
+    enabled, the prompt receives the user's latest known coordinates so
+    the avatar can answer "qué hago hoy en Lima"-type questions naturally
+    without resorting to a generic answer.
+
+    Coords-only by design: we don't reverse-geocode here. The LLM handles
+    "the user is at -12.04, -77.04, country=pe" → "Lima, Peru" inference
+    on its own, and avoiding a geocoding dependency keeps the dev path
+    cheap and the privacy surface small.
+
+    Args:
+        last_location: Dict with optional ``latitude``, ``longitude``,
+            ``country``, ``city`` keys, or None.
+
+    Returns:
+        A short Spanish "UBICACIÓN ACTUAL" line, or empty string when
+        no location is available.
+    """
+    if not last_location:
+        return ""
+
+    lat = last_location.get("latitude")
+    lng = last_location.get("longitude")
+    country = last_location.get("country")
+    city = last_location.get("city")
+
+    parts: list[str] = []
+    if city:
+        parts.append(str(city))
+    if country:
+        parts.append(str(country).upper())
+    if lat is not None and lng is not None:
+        try:
+            parts.append(f"({float(lat):.3f}, {float(lng):.3f})")
+        except (TypeError, ValueError):
+            pass
+    if not parts:
+        return ""
+    return "UBICACIÓN ACTUAL DEL USUARIO: " + " ".join(parts) + "."
+
+
+def _build_formality_directive_section(
+    formality_level: float | None,
+    active_mode: str,
+    mode_message_count: int,
+    behavior_settings: dict[str, object] | None,
+) -> str:
+    """Translate detected ``formality_level`` into an explicit register directive.
+
+    The slang calibrator chain produces a 0.0–1.0 reading from the user's
+    own messages every 5 turns. Until this section, that signal lived only
+    in ``_build_language_style_section`` to bin slang intensity — the avatar
+    received no explicit instruction about register. This section closes
+    that gap.
+
+    Suppression rules:
+    - Profesional mode and dating-nascent already enforce neutral register;
+      adding a directive on top would either be redundant or contradict the
+      mode block. Suppress in those cases.
+    - When ``behavior_settings.tone_formality`` is set, the user's explicit
+      policy wins over the calibrator's observation; suppress so
+      ``_build_behavior_section`` is the sole formality voice.
+
+    Args:
+        formality_level: 0.0 (very informal) to 1.0 (very formal), or None.
+        active_mode: Current avatar mode.
+        mode_message_count: Lifetime user-message count in active_mode.
+        behavior_settings: Optional explicit behavior policy.
+
+    Returns:
+        A short directive paragraph, or empty string.
+    """
+    if formality_level is None:
+        return ""
+    if _mode_demands_neutral_register(active_mode, mode_message_count):
+        return ""
+    if behavior_settings and behavior_settings.get("tone_formality") is not None:
+        return ""
+
+    if formality_level < 0.3:
+        directive = (
+            "REGISTRO DETECTADO: muy informal. "
+            "Tutea libremente, contracciones permitidas, jerga regional sin reservas. "
+            "El usuario habla relajado — espejá ese registro."
+        )
+    elif formality_level < 0.7:
+        directive = (
+            "REGISTRO DETECTADO: neutro-cercano. "
+            "Contracciones ok, jerga moderada. Mantén calidez sin caer en exceso de coloquialismo."
+        )
+    else:
+        directive = (
+            "REGISTRO DETECTADO: más formal. "
+            "Trato respetuoso, evita jerga pesada y muletillas excesivas. "
+            "Cercanía sin tutearse de más."
+        )
+    return directive
+
+
 def _build_behavior_section(
     behavior_settings: dict[str, object] | None,
     active_mode: str = "friends",
@@ -461,7 +659,7 @@ def _build_personality_section(
 def build_avatar_system_prompt(
     avatar_name: str,
     display_name: str,
-    knowledge_level: int = 1,
+    knowledge_level: int = 1,  # 1-10 from Rails Avatar; rendered as 1-5 in prompt
     age_range: str | None = None,
     interests: list[str] | None = None,
     introvert_extrovert: float | None = None,
@@ -479,6 +677,10 @@ def build_avatar_system_prompt(
     active_mode: str = "friends",
     mode_message_count: int = 0,
     upcoming_events: list[dict[str, str | bool]] | None = None,
+    last_location: dict[str, float | str] | None = None,
+    prior_summary: str | None = None,
+    transcript_quotes: list[str] | None = None,
+    agent_identity: str | None = None,
 ) -> str:
     """Build the full avatar system prompt from user profile and context.
 
@@ -524,6 +726,18 @@ def build_avatar_system_prompt(
     insights_section = _build_insights_section(insights)
     persona_section = _build_persona_section(persona_insights)
     events_section = _build_events_section(upcoming_events, display_name)
+    location_section = _build_location_section(last_location)
+    summary_section = _build_summary_section(prior_summary)
+    transcript_quotes_section = _build_transcript_quotes_section(transcript_quotes)
+    agent_identity_section = _build_agent_identity_section(
+        agent_identity, display_name
+    )
+    formality_directive_section = _build_formality_directive_section(
+        formality_level=formality_level,
+        active_mode=active_mode,
+        mode_message_count=mode_message_count,
+        behavior_settings=behavior_settings,
+    )
     behavior_section = _build_behavior_section(
         behavior_settings,
         active_mode=active_mode,
@@ -542,8 +756,26 @@ def build_avatar_system_prompt(
     )
     datetime_str = current_datetime or ""
 
-    try:
-        formatted = template.format(
+    # Render knowledge_level on a stable 1-5 scale even though the canonical
+    # Rails value is 1-10. Mapping is a simple halving: 1-2 → 1, 3-4 → 2,
+    # 5-6 → 3, 7-8 → 4, 9-10 → 5. This lets the prompt copy stay "X/5"
+    # without changing meaning when the Rails formula evolves.
+    knowledge_level_display = max(1, min(5, (int(knowledge_level) + 1) // 2))
+
+    # Sections that may be absent from older deployed templates. The
+    # template-fallback path below strips these placeholders out and
+    # appends each section to the tail of the formatted prompt instead.
+    _OPTIONAL_SECTIONS = {
+        "events_section": events_section,
+        "formality_directive_section": formality_directive_section,
+        "location_section": location_section,
+        "summary_section": summary_section,
+        "transcript_quotes_section": transcript_quotes_section,
+        "agent_identity_section": agent_identity_section,
+    }
+
+    def _format_with(template_str: str, **extra: str | int) -> str:
+        return template_str.format(
             avatar_name=avatar_name,
             display_name=display_name,
             age_range=age_range_str,
@@ -553,38 +785,37 @@ def build_avatar_system_prompt(
             health_section=health_section,
             insights_section=insights_section,
             persona_section=persona_section,
-            events_section=events_section,
-            knowledge_level=knowledge_level,
+            knowledge_level=knowledge_level_display,
             current_datetime=datetime_str,
             language_style_section=language_style_section,
             mode_section=mode_section,
+            **extra,
+        )
+
+    try:
+        formatted = _format_with(
+            template,
+            events_section=events_section,
+            formality_directive_section=formality_directive_section,
+            location_section=location_section,
+            summary_section=summary_section,
+            transcript_quotes_section=transcript_quotes_section,
+            agent_identity_section=agent_identity_section,
         )
     except KeyError as exc:
-        # Template predates the events_section placeholder — append the
-        # block to the end so the section still surfaces, with a warning
-        # so deployments stay aware they're running a stale template.
-        if str(exc).strip("'") == "events_section":
+        missing = str(exc).strip("'")
+        if missing in _OPTIONAL_SECTIONS:
             logger.warning(
-                "avatar_system.txt template is missing {events_section}; appending the block"
+                "avatar_system.txt template is missing {%s}; appending sections at tail",
+                missing,
             )
-            template_no_events = template.replace("{events_section}", "")
-            formatted = template_no_events.format(
-                avatar_name=avatar_name,
-                display_name=display_name,
-                age_range=age_range_str,
-                interests=interests_str,
-                personality_section=personality_section,
-                social_section=social_section,
-                health_section=health_section,
-                insights_section=insights_section,
-                persona_section=persona_section,
-                knowledge_level=knowledge_level,
-                current_datetime=datetime_str,
-                language_style_section=language_style_section,
-                mode_section=mode_section,
-            )
-            if events_section:
-                formatted += "\n\n" + events_section
+            stripped = template
+            for placeholder in _OPTIONAL_SECTIONS:
+                stripped = stripped.replace("{" + placeholder + "}", "")
+            formatted = _format_with(stripped)
+            for section in _OPTIONAL_SECTIONS.values():
+                if section:
+                    formatted += "\n\n" + section
         else:
             logger.error(
                 "Failed to format avatar system prompt: missing key %s", exc

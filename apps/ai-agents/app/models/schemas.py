@@ -27,7 +27,10 @@ class UserProfile(BaseModel):
         avatar_name: Name of the user's avatar (1-50 chars).
         age_range: Optional age range bucket (e.g. "25_34").
         interests: User's interests, stored lowercase and unique.
-        knowledge_level: Avatar's knowledge depth about the user (1-5).
+        knowledge_level: Avatar's knowledge depth about the user (1-10).
+            Computed canonically by Rails ``Avatar#knowledge_level`` and
+            passed through unchanged. Rendered as 1-5 in the prompt for
+            stylistic stability.
         introvert_extrovert: Personality scale (0.0=introvert, 1.0=extrovert).
         rational_emotional: Personality scale (0.0=rational, 1.0=emotional).
         values: User's core values from onboarding.
@@ -52,8 +55,16 @@ class UserProfile(BaseModel):
         max_length=50,
         description="IANA timezone name (e.g. 'America/Lima'). Used to resolve relative date phrases during event extraction.",
     )
+    last_location: dict[str, float | str] | None = Field(
+        default=None,
+        description=(
+            "Privacy-gated last-known location payload (Phase 10). When "
+            "present, the avatar's prompt receives a 'UBICACIÓN ACTUAL' "
+            "line. Inner keys are optional: latitude, longitude, country, city."
+        ),
+    )
     interests: list[str] = Field(default_factory=list)
-    knowledge_level: int = Field(default=1, ge=1, le=5)
+    knowledge_level: int = Field(default=1, ge=1, le=10)
     introvert_extrovert: float | None = None
     rational_emotional: float | None = None
     values: list[str] = Field(default_factory=list)
@@ -65,6 +76,13 @@ class UserProfile(BaseModel):
     # ramp (nascent < 30 < warming < 150 ≤ established) to soften register as
     # familiarity grows. Other modes ignore this value.
     mode_message_count: int = Field(default=0, ge=0)
+    # Wave A.1 (2026-05-06) — explicit user policy. The prompt builder's
+    # `_build_behavior_section` already consumed this dict; now the wire
+    # schema actually carries it from Rails. Tone keys (tone_formality /
+    # tone_humor / tone_verbosity) are 0.0–1.0; language is an ISO code;
+    # preferred/restricted_topics are lists. Mode-strict register
+    # suppresses tone keys but keeps `language` and `restricted_topics`.
+    behavior_settings: dict[str, object] | None = None
 
     @field_validator("interests")
     @classmethod
@@ -104,6 +122,43 @@ class ChatGenerateRequest(BaseModel):
         default=None,
         description="UTC timestamp when the user sent the message. Used as RELATIVE_BASE for event-extraction date resolution.",
     )
+
+
+class LearnRequest(BaseModel):
+    """Wave B.4 (2026-05-06) — durable post-turn learning request.
+
+    Posted by Rails ``PostTurnLearningJob`` after the assistant Message has
+    been persisted. The endpoint runs the full post-turn batch (corrections,
+    insights, persona, events, slang-when-due, summary-when-due) and
+    returns counts so Rails can persist them on the assistant Message
+    metadata for observability.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    user_id: str = Field(..., min_length=1)
+    conversation_id: str = Field(..., min_length=1)
+    user_message: str = Field(..., min_length=1, max_length=10000)
+    assistant_response: str | None = Field(default=None, max_length=20000)
+    conversation_history: list[dict[str, str]] = Field(default_factory=list)
+    active_mode: Literal["professional", "friends", "dating"] = "friends"
+    display_name: str = Field(default="el usuario", max_length=100)
+    turn_count: int = Field(default=0, ge=0)
+    timezone: str | None = None
+    message_created_at: datetime | None = None
+
+
+class LearnResponse(BaseModel):
+    """Counts + telemetry returned by ``/internal/chat/learn``."""
+
+    insights_new: int = 0
+    insights_updated: int = 0
+    insights_superseded: int = 0
+    events_new: int = 0
+    persona_notes: int = 0
+    summary_written: bool = False
+    slang_calibrated: bool = False
+    took_ms: int = 0
 
 
 class ChatGenerateResponse(BaseModel):
@@ -324,13 +379,14 @@ class MemoryResponse(BaseModel):
     Attributes:
         user_id: The user's identifier.
         total_insights: Total number of stored insights.
-        knowledge_level: Current avatar knowledge level (1-5).
+        knowledge_level: Optional pass-through of Rails-computed knowledge
+            level (1-10). FastAPI no longer derives this; defaults to 1.
         insights: List of recent/relevant insights.
     """
 
     user_id: str
     total_insights: int = Field(default=0, ge=0)
-    knowledge_level: int = Field(default=1, ge=1, le=5)
+    knowledge_level: int = Field(default=1, ge=1, le=10)
     insights: list[Insight] = Field(default_factory=list)
 
 

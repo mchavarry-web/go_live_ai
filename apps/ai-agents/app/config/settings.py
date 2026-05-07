@@ -89,6 +89,22 @@ class Settings(BaseSettings):
     langsmith_project: str = "golive-ai-agents"
     langchain_tracing_v2: bool = True
 
+    # ── Post-turn learning (Wave B.4, 2026-05-06) ──────────────────────
+    # When True, FastAPI runs post-turn extraction in-process via
+    # ``asyncio.create_task`` AFTER the streamed response. Fast but
+    # can be lost on worker restart. When False, Rails owns durability:
+    # FastAPI skips the in-process kick, Rails enqueues a Sidekiq job
+    # that calls back to ``POST /internal/chat/learn`` synchronously.
+    # Default True for safety during rollout — flip to False once the
+    # durable path has been observed for a release cycle.
+    post_turn_inline: bool = Field(
+        default=True,
+        description=(
+            "Run post-turn learning in-process (True, legacy) or via "
+            "Rails Sidekiq + /internal/chat/learn (False, durable)"
+        ),
+    )
+
     # ── Web Search ──────────────────────────────────────────────────────
     web_search_enabled: bool = Field(
         default=True,

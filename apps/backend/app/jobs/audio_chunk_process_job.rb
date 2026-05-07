@@ -131,15 +131,25 @@ class AudioChunkProcessJob < ApplicationJob
       "[audio-job] insights → FastAPI chunk=#{chunk.id} user=#{chunk.user.id} " \
       "transcript_chars=#{text.length} source=audio:#{chunk.audio_session_id}"
     )
+    # recorded_at: chunk's created_at is the earliest reliable timestamp
+    # we have — Sidekiq may pick the chunk up later, so we don't want to
+    # use Time.current and risk "mañana" resolving to the wrong day.
+    recorded_at = chunk.created_at.utc.iso8601
     response = AiAgentsClient.new.extract_audio_insights(
-      user_id:    chunk.user.id,
-      transcript: text,
-      source:     "audio:#{chunk.audio_session_id}",
-      context:    "Audio session chunk ##{chunk.sequence_number}"
+      user_id:          chunk.user.id,
+      transcript:       text,
+      source:           "audio:#{chunk.audio_session_id}",
+      context:          "Audio session chunk ##{chunk.sequence_number}",
+      timezone:         chunk.user.timezone,
+      recorded_at:      recorded_at,
+      audio_chunk_id:   chunk.id,
+      audio_session_id: chunk.audio_session_id
     )
     stored = response.is_a?(Hash) ? response["stored"] : nil
+    events = response.is_a?(Hash) ? response["events"] : nil
     Rails.logger.info(
-      "[audio-job] insights done chunk=#{chunk.id} took=#{(monotonic_ms - started_at).to_i}ms stored=#{stored.inspect}"
+      "[audio-job] insights done chunk=#{chunk.id} took=#{(monotonic_ms - started_at).to_i}ms " \
+      "stored=#{stored.inspect} events=#{events.inspect}"
     )
   rescue StandardError => e
     Rails.logger.warn(

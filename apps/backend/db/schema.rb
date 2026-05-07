@@ -10,9 +10,50 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_01_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_06_000004) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "agent_action_logs", force: :cascade do |t|
+    t.string "approval_status", default: "proposed", null: false
+    t.string "capability", null: false
+    t.string "conversation_id"
+    t.datetime "created_at", null: false
+    t.text "error"
+    t.datetime "executed_at"
+    t.text "requested_action", null: false
+    t.string "risk_level", default: "read_only", null: false
+    t.boolean "rollback_available", default: false, null: false
+    t.jsonb "rollback_payload"
+    t.string "status", default: "proposed", null: false
+    t.jsonb "tool_input", default: {}, null: false
+    t.string "tool_name"
+    t.jsonb "tool_output", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["conversation_id"], name: "ix_agent_action_logs_conversation"
+    t.index ["user_id", "approval_status"], name: "ix_agent_action_logs_user_status"
+    t.index ["user_id", "executed_at"], name: "ix_agent_action_logs_user_executed_at", order: { executed_at: :desc }
+    t.index ["user_id"], name: "index_agent_action_logs_on_user_id"
+  end
+
+  create_table "agent_permissions", force: :cascade do |t|
+    t.jsonb "allowed_domains", default: [], null: false
+    t.jsonb "allowed_recipients", default: [], null: false
+    t.boolean "approval_required", default: true, null: false
+    t.string "capability", null: false
+    t.datetime "created_at", null: false
+    t.boolean "enabled", default: false, null: false
+    t.string "max_risk_level", default: "read_only", null: false
+    t.jsonb "quiet_hours", default: {}, null: false
+    t.jsonb "scope", default: {}, null: false
+    t.integer "spend_limit_cents"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["user_id", "capability"], name: "ix_agent_permissions_user_capability", unique: true
+    t.index ["user_id", "enabled"], name: "ix_agent_permissions_user_enabled"
+    t.index ["user_id"], name: "index_agent_permissions_on_user_id"
+  end
 
   create_table "audio_chunks", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.text "audio_data"
@@ -146,6 +187,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_01_000001) do
     t.index ["user_id"], name: "index_social_connections_on_user_id"
   end
 
+  create_table "social_data_snapshots", force: :cascade do |t|
+    t.integer "byte_size", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.integer "extraction_version", default: 1, null: false
+    t.datetime "fetched_at", null: false
+    t.string "platform", null: false
+    t.jsonb "raw_data", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["user_id", "platform", "fetched_at"], name: "ix_social_snapshots_user_platform_fetched", order: { fetched_at: :desc }
+    t.index ["user_id"], name: "index_social_data_snapshots_on_user_id"
+  end
+
   create_table "user_feature_settings", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.datetime "created_at", null: false
     t.boolean "enabled", default: true, null: false
@@ -183,6 +237,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_01_000001) do
     t.datetime "reset_password_sent_at"
     t.string "reset_password_token"
     t.string "role", default: "user", null: false
+    t.boolean "share_location_with_avatar", default: false, null: false
     t.integer "sign_in_count", default: 0, null: false
     t.string "timezone"
     t.boolean "two_factor_enabled", default: false
@@ -210,6 +265,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_01_000001) do
     t.index ["user_id"], name: "index_voice_enrollments_on_user_id", unique: true
   end
 
+  add_foreign_key "agent_action_logs", "users", on_delete: :cascade
+  add_foreign_key "agent_permissions", "users", on_delete: :cascade
   add_foreign_key "audio_chunks", "audio_sessions"
   add_foreign_key "audio_sessions", "users"
   add_foreign_key "audio_usages", "users"
@@ -218,6 +275,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_01_000001) do
   add_foreign_key "device_tokens", "users"
   add_foreign_key "messages", "conversations"
   add_foreign_key "social_connections", "users"
+  add_foreign_key "social_data_snapshots", "users", on_delete: :cascade
   add_foreign_key "user_feature_settings", "users"
   add_foreign_key "voice_enrollments", "users"
 end

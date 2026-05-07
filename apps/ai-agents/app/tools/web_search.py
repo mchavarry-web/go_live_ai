@@ -215,7 +215,18 @@ def _build_tavily_tool(tavily_api_key: str, max_results: int):
         logger.info("Executing Tavily web search: query=%r", query)
         try:
             results = await tavily.ainvoke(query)
-            return _format_results(results)
+            formatted = _format_results(results)
+            # Phase 15: stash for the engagement classifier to read on the
+            # next turn. No-ops when called outside a bound chat request.
+            try:
+                from app.services.search_engagement_service import (
+                    stash_search_context_for_current_chat,
+                )
+
+                stash_search_context_for_current_chat(query, formatted[:1000])
+            except Exception:
+                logger.debug("Search-engagement stash failed", exc_info=True)
+            return formatted
         except Exception:
             logger.exception("Tavily web search failed: query=%r", query)
             return "No pude obtener resultados de búsqueda en este momento."
@@ -248,7 +259,16 @@ def _build_duckduckgo_tool(max_results: int):
         logger.info("Executing DuckDuckGo web search: query=%r", query)
         try:
             results = await ddg.ainvoke(query)
-            return _format_results(results)
+            formatted = _format_results(results)
+            try:
+                from app.services.search_engagement_service import (
+                    stash_search_context_for_current_chat,
+                )
+
+                stash_search_context_for_current_chat(query, formatted[:1000])
+            except Exception:
+                logger.debug("Search-engagement stash failed", exc_info=True)
+            return formatted
         except Exception:
             logger.exception("DuckDuckGo web search failed: query=%r", query)
             return "No pude obtener resultados de búsqueda en este momento."

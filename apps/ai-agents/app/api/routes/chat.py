@@ -19,6 +19,8 @@ from app.llm.providers import get_embeddings
 from app.models.schemas import (
     ChatGenerateRequest,
     ChatGenerateResponse,
+    LearnRequest,
+    LearnResponse,
     ProactiveGenerateRequest,
     ProactiveGenerateResponse,
 )
@@ -133,6 +135,56 @@ async def stream_chat_response(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to start avatar response stream.",
+        ) from exc
+
+
+@router.post(
+    "/learn",
+    response_model=LearnResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Run post-turn learning (durable path)",
+    description=(
+        "Wave B.4 (2026-05-06). Synchronously runs the post-turn learning "
+        "pipeline (corrections, insight extraction, persona evolution, "
+        "event extraction, slang calibration when due, summary when due, "
+        "search-engagement capture when applicable). Called by Rails "
+        "PostTurnLearningJob after the assistant Message is persisted, "
+        "as the durable alternative to FastAPI's in-process create_task."
+    ),
+)
+async def run_post_turn_learning(
+    request: LearnRequest,
+    settings: SettingsDep,
+    llm: LLMDep,
+    session: DbSessionDep,
+) -> LearnResponse:
+    """Durable post-turn learning entrypoint."""
+    try:
+        embeddings = get_embeddings(settings)
+        service = ChatService(llm=llm, settings=settings, embeddings=embeddings)
+        counts = await service.learn(
+            session=session,
+            user_id=request.user_id,
+            conversation_id=request.conversation_id,
+            user_message=request.user_message,
+            assistant_response=request.assistant_response,
+            conversation_history=request.conversation_history,
+            active_mode=request.active_mode,
+            display_name=request.display_name,
+            turn_count=request.turn_count,
+            timezone=request.timezone,
+            message_created_at=request.message_created_at,
+        )
+        return LearnResponse(**counts)
+    except Exception as exc:
+        logger.exception(
+            "Post-turn learning failed user_id=%s conv=%s",
+            request.user_id,
+            request.conversation_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Post-turn learning failed.",
         ) from exc
 
 

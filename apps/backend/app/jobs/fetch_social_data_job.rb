@@ -20,12 +20,29 @@ class FetchSocialDataJob < ApplicationJob
 
     last_sync = conn.metadata["last_sync_at"]
     raw_data  = fetch(conn, since: last_sync)
+    fetched_at = Time.current
+
+    # Phase 16 — archive raw_data before overwriting metadata so future
+    # extraction-chain improvements can redrive against the original
+    # provider payload.
+    begin
+      SocialDataSnapshot.archive!(
+        user:       conn.user,
+        platform:   provider,
+        raw_data:   raw_data,
+        fetched_at: fetched_at
+      )
+    rescue StandardError => e
+      Rails.logger.warn(
+        "[fetch-social] snapshot failed user=#{user_id} platform=#{provider} #{e.class}: #{e.message}"
+      )
+    end
 
     conn.update!(
       metadata: conn.metadata.merge(
         "raw_data"     => raw_data,
-        "last_sync_at" => Time.current.iso8601,
-        "fetched_at"   => Time.current.iso8601
+        "last_sync_at" => fetched_at.iso8601,
+        "fetched_at"   => fetched_at.iso8601
       )
     )
 

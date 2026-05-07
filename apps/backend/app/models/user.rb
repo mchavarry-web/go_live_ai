@@ -16,6 +16,9 @@ class User < ApplicationRecord
   has_many :audio_sessions,   dependent: :destroy
   has_one  :voice_enrollment, dependent: :destroy
   has_many :audio_usages,     dependent: :destroy
+  # Wave C (2026-05-06) — autonomous-agent permissions + audit trail.
+  has_many :agent_permissions, dependent: :destroy
+  has_many :agent_action_logs, dependent: :destroy
 
   after_create :ensure_avatar
 
@@ -29,6 +32,24 @@ class User < ApplicationRecord
   validates :provider,        inclusion: { in: PROVIDERS },   allow_nil: true
   validates :country, length: { is: 2 }, allow_blank: true
   validates :provider_uid, uniqueness: { scope: :provider }, allow_blank: true
+
+  # ── Location helpers (Phase 10 — reactive chat context) ──────────────
+
+  # Privacy-gated payload sent into the avatar's chat-time system prompt.
+  # Returns nil when the toggle is off OR when no coordinates are stored —
+  # the prompt builder omits the location section entirely in that case.
+  # We deliberately ship coords-only (no city lookup) to avoid an external
+  # geocoding dependency; the LLM is good enough at inferring city.
+  def current_location_payload
+    return nil unless share_location_with_avatar?
+    return nil if last_latitude.blank? || last_longitude.blank?
+
+    {
+      latitude:  last_latitude,
+      longitude: last_longitude,
+      country:   country
+    }.compact
+  end
 
   # ── Role helpers (single-role model) ──────────────────────────────────
   def admin?             = role == "administrator"

@@ -102,6 +102,19 @@ REGLAS GENERALES:
 5. Para patrones NO dialectales: confianza 0.5-0.8 (incipientes) o 0.8-1.0 (establecidos).
 6. Para marcadores dialectales: seguir el guardarriel de arriba (tentativos 0.45-0.55, confirmados 0.80+).
 
+ANTI-AUTORREFUERZO (regla critica para evitar deriva de estilo):
+Lo que el avatar dice por si mismo NO es evidencia del estilo del usuario.
+Una palabra, jerga o registro que aparece SOLO en la respuesta del avatar y
+NO en el mensaje del usuario debe tratarse como una eleccion del avatar, no
+como reflejo del usuario. Solo se vuelve evidencia del estilo del usuario
+cuando el usuario:
+  - la repite explicitamente,
+  - la confirma ("si, exacto", "tal cual"),
+  - o la contradice (eso si es senal — significa que NO es su estilo).
+Si una jerga aparece por primera vez en la respuesta del avatar, NO la
+registres como patron establecido del usuario en esta nota. Como mucho
+emiti una observacion tentativa siguiendo el guardarriel dialectal.
+
 HISTORIAL DE PERSONALIDAD PREVIO:
 {prior_persona}
 

@@ -109,22 +109,50 @@ class InsightExtractionChain:
         parser: Pydantic output parser for structured results.
         prompt: The ChatPromptTemplate for insight extraction.
         chain: The composed LCEL chain.
-        min_confidence: Minimum confidence threshold for accepting insights.
+        min_confidence: Minimum confidence threshold for accepting insights
+            (used as a fallback when ``category_min_confidence`` lacks a key).
+        category_min_confidence: Per-category overrides. Sensitive categories
+            (health/relationship/emotion) get a higher bar than the default;
+            all other categories fall back to ``min_confidence``.
     """
+
+    # Wave B.2 (2026-05-06) — sensitive categories get a stricter floor
+    # because false positives there are higher-impact (a wrong "health"
+    # insight can show up as "user takes medication X" — embarrassing).
+    # action_usable bucket reserved for Wave C autonomy work; not active
+    # in any current chain caller.
+    _DEFAULT_BASE_CONFIDENCE = 0.55
+    _DEFAULT_CATEGORY_CONFIDENCE: dict[str, float] = {
+        "health": 0.65,
+        "relationship": 0.65,
+        "emotion": 0.65,
+    }
 
     def __init__(
         self,
         llm: BaseChatModel,
-        min_confidence: float = 0.4,
+        min_confidence: float | None = None,
+        category_min_confidence: dict[str, float] | None = None,
     ) -> None:
         """Initialize the insight extraction chain.
 
         Args:
             llm: A LangChain BaseChatModel instance.
-            min_confidence: Minimum confidence score to keep an insight.
+            min_confidence: Default confidence floor when a category has
+                no explicit override. Defaults to 0.55 (Wave B.2). Pass
+                an explicit value (e.g. 0.4 for legacy callers) to opt out.
+            category_min_confidence: Optional per-category override map.
+                Defaults to {health: 0.65, relationship: 0.65, emotion: 0.65}.
         """
         self.llm = llm
-        self.min_confidence = min_confidence
+        self.min_confidence = (
+            min_confidence
+            if min_confidence is not None
+            else self._DEFAULT_BASE_CONFIDENCE
+        )
+        if category_min_confidence is None:
+            category_min_confidence = dict(self._DEFAULT_CATEGORY_CONFIDENCE)
+        self.category_min_confidence = category_min_confidence
         self.parser = PydanticOutputParser(pydantic_object=ExtractedInsights)
 
         self.prompt = ChatPromptTemplate.from_messages(
@@ -166,11 +194,16 @@ class InsightExtractionChain:
                 }
             )
 
-            # Filter by minimum confidence
+            # Filter by per-category minimum confidence (Wave B.2). Sensitive
+            # categories (health/relationship/emotion) require a higher floor
+            # than the base default. Unknown categories fall back to the base.
+            def _floor_for(category: str) -> float:
+                return self.category_min_confidence.get(category, self.min_confidence)
+
             filtered = [
                 insight
                 for insight in result.insights
-                if insight.confidence >= self.min_confidence
+                if insight.confidence >= _floor_for(insight.category)
             ]
 
             # Validate categories — avatar_evolution is reserved for PersonaEvolutionChain

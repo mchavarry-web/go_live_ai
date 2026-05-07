@@ -12,8 +12,13 @@ Endpoints:
 
 import asyncio
 import logging
+import re
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
+from langchain_core.language_models import BaseChatModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DbSessionDep, LLMDep, SettingsDep
 from app.chains.facebook_content_chain import FacebookContentChain
@@ -34,7 +39,35 @@ from app.models.schemas import (
     SemanticSearchRequest,
     SocialExtractRequest,
 )
+from app.services.event_service import EventService
 from app.services.memory_service import MemoryService
+
+# ── Social-post event extraction config ─────────────────────────────────
+
+# Skip posts older than this — historical "next Tuesday" usually resolves
+# to a date already in the past and gets dropped anyway, so paying for
+# the LLM call is wasteful.
+_SOCIAL_POST_AGE_LIMIT_DAYS = 180
+
+# Cap concurrent event extractions per ingest. Twitter users can have
+# hundreds of recent posts; this bounds peak LLM concurrency.
+_SOCIAL_EVENT_CONCURRENCY = 5
+
+# Higher confidence floor than chat: posts are noisier text, more likely
+# to mention dates in non-commitment ways ("happy on Mondays").
+_SOCIAL_EVENT_MIN_CONFIDENCE = 0.7
+
+# Cheap pre-filter — only call the LLM on posts that mention a temporal
+# marker. Cuts ~80% of LLM calls for free.
+_TEMPORAL_PATTERNS = re.compile(
+    r"\b(mañana|próxim[oa]|próx\.?|el lunes|el martes|el miércoles|el jueves|"
+    r"el viernes|el sábado|el domingo|este lunes|este martes|este miércoles|"
+    r"este jueves|este viernes|este sábado|este domingo|esta noche|"
+    r"hoy|tonight|tomorrow|next (mon|tue|wed|thu|fri|sat|sun)|"
+    r"on (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|"
+    r"\bin \d+\s*(day|week|month)|\ben \d+\s*(d[ií]a|semana|mes))",
+    re.IGNORECASE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -183,10 +216,22 @@ async def extract_social_insights(
         else:
             insight_dicts, summary, breakdown = await _extract_generic(llm, request)
 
+        # Event extraction happens regardless of insight outcome — a post can
+        # contribute an event even if it doesn't move the insight needle.
+        normalized_posts = _normalize_posts(platform, request.data)
+        events_persisted = await _extract_events_from_social_posts(
+            llm=llm,
+            session=session,
+            user_id=request.user_id,
+            platform=platform,
+            posts=normalized_posts,
+        )
+
         if not insight_dicts:
             return {
                 "insights": [],
                 "stored": 0,
+                "events": events_persisted,
                 "summary": summary,
                 **({"breakdown": breakdown} if breakdown else {}),
             }
@@ -216,6 +261,7 @@ async def extract_social_insights(
         return {
             "insights": [ins.model_dump() for ins in stored_insights],
             "stored": len(stored),
+            "events": events_persisted,
             "summary": summary,
             "insights_count": len(stored),
             **({"breakdown": breakdown} if breakdown else {}),
@@ -231,6 +277,122 @@ async def extract_social_insights(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Social insight extraction failed. Please try again.",
         ) from exc
+
+
+# ── Social-post → events helpers ──────────────────────────────────────
+
+
+def _parse_post_date(raw: object) -> datetime | None:
+    """Parse a provider-shaped post timestamp into a tz-aware UTC datetime.
+
+    Handles ISO 8601 with offset, ISO without tz (assumed UTC), and the
+    Facebook ``YYYY-MM-DDTHH:MM:SS+0000`` shape (offset without colon).
+    Returns ``None`` for unrecognised values so the caller can skip the post.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    candidates = [raw]
+    # Facebook Graph returns "+0000" — datetime.fromisoformat needs "+00:00".
+    if len(raw) > 5 and raw[-5] in ("+", "-") and raw[-3] != ":":
+        candidates.append(raw[:-2] + ":" + raw[-2:])
+    for candidate in candidates:
+        try:
+            dt = datetime.fromisoformat(candidate)
+        except ValueError:
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
+    return None
+
+
+def _normalize_posts(platform: str, data: dict[str, object]) -> list[tuple[str, datetime]]:
+    """Reduce a raw social payload into ``[(text, published_at_utc), ...]``.
+
+    Skips posts with missing text or unparseable timestamps. Spotify has
+    no posts. Instagram comments are intentionally excluded — they lack a
+    reliable post-date and produce mostly noise for event extraction.
+    """
+    out: list[tuple[str, datetime]] = []
+    if platform == "facebook":
+        for item in data.get("posts", []) or []:
+            if not isinstance(item, dict):
+                continue
+            text = (item.get("message") or item.get("story") or "").strip()
+            ts = _parse_post_date(item.get("created_time"))
+            if text and ts:
+                out.append((text, ts))
+    elif platform == "twitter":
+        for item in data.get("tweets", []) or []:
+            if not isinstance(item, dict):
+                continue
+            text = (item.get("text") or "").strip()
+            ts = _parse_post_date(item.get("created_at"))
+            if text and ts:
+                out.append((text, ts))
+    return out
+
+
+async def _extract_events_from_social_posts(
+    *,
+    llm: BaseChatModel,
+    session: AsyncSession,
+    user_id: str,
+    platform: str,
+    posts: list[tuple[str, datetime]],
+    timezone: str | None = None,
+) -> int:
+    """Run event extraction across already-normalized posts.
+
+    Filters by age + temporal-marker regex before paying for an LLM call.
+    Concurrency capped via Semaphore. Failures on a single post are
+    swallowed (logged) so one bad post can't poison the whole ingest.
+
+    Returns the count of newly persisted events (after dedupe).
+    """
+    if not posts:
+        return 0
+
+    cutoff = datetime.now(UTC) - timedelta(days=_SOCIAL_POST_AGE_LIMIT_DAYS)
+    eligible = [
+        (text, published_at)
+        for (text, published_at) in posts
+        if published_at >= cutoff and _TEMPORAL_PATTERNS.search(text)
+    ]
+    if not eligible:
+        return 0
+
+    sem = asyncio.Semaphore(_SOCIAL_EVENT_CONCURRENCY)
+    event_service = EventService(session=session)
+
+    async def _one(text: str, published_at: datetime) -> int:
+        async with sem:
+            stored = await event_service.extract_and_store_from_text(
+                llm=llm,
+                user_id=user_id,
+                text=text,
+                source=platform,
+                timezone=timezone,
+                anchor_at=published_at,
+                min_confidence=_SOCIAL_EVENT_MIN_CONFIDENCE,
+            )
+            return len(stored)
+
+    counts = await asyncio.gather(
+        *(_one(t, ts) for (t, ts) in eligible),
+        return_exceptions=True,
+    )
+    total = sum(c for c in counts if isinstance(c, int))
+    if total:
+        logger.info(
+            "social.events: persisted %d events from %d/%d eligible posts user_id=%s platform=%s",
+            total,
+            sum(1 for c in counts if isinstance(c, int) and c > 0),
+            len(eligible),
+            user_id,
+            platform,
+        )
+    return total
 
 
 # ── Per-platform extractors ────────────────────────────────────────────

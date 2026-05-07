@@ -56,6 +56,19 @@ Rails.application.routes.draw do
         delete "voice_enrollment",  to: "voice_enrollments#destroy"
       end
 
+      # Wave C.4 (2026-05-06) — agent draft-mode proposal surface.
+      # No execution; proposals are persisted as audit rows for the user
+      # to approve/reject/edit. See docs/autonomous_agent_design.md.
+      scope "agent" do
+        resources :proposals,
+                  only: %i[index show create],
+                  controller: "agent_proposals" do
+          patch :approve, on: :member
+          patch :reject,  on: :member
+          patch :edit,    on: :member
+        end
+      end
+
       # Device tokens + push notifications
       scope "notifications" do
         post   "device_tokens",         to: "device_tokens#create"
