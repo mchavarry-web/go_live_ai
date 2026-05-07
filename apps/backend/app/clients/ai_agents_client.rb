@@ -199,6 +199,46 @@ class AiAgentsClient
     parsed
   end
 
+  # Synthesize ``text`` to spoken audio. Returns the raw bytes plus the
+  # provider-reported metadata so the caller can attach it via Shrine.
+  #
+  # Returns: { bytes: String (binary), mime: "audio/mpeg", voice:, model:, provider: }
+  #          or nil on non-2xx (caller decides whether to retry / persist text-only).
+  def synthesize_speech(text:, voice: nil, audio_format: "mp3")
+    body = { text: text, audio_format: audio_format }
+    body[:voice] = voice if voice.present?
+
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000.0
+    response = self.class.post(
+      "/internal/audio/synthesize",
+      body: body.to_json,
+      headers: { "Content-Type" => "application/json" },
+      timeout: 90
+    )
+    took_ms = Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000.0 - started
+
+    if response.code >= 400
+      Rails.logger.warn(
+        "[ai-client] synthesize non-2xx http=#{response.code} took=#{took_ms.to_i}ms " \
+        "body=#{response.body.to_s.first(500)}"
+      )
+      return nil
+    end
+
+    bytes = response.body.to_s.b # ensure ASCII-8BIT (binary)
+    Rails.logger.info(
+      "[ai-client] synthesize chars=#{text.length} bytes=#{bytes.bytesize} " \
+      "took=#{took_ms.to_i}ms voice=#{response.headers["x-audio-voice"].inspect}"
+    )
+    {
+      bytes:    bytes,
+      mime:     response.headers["content-type"] || "audio/mpeg",
+      voice:    response.headers["x-audio-voice"],
+      model:    response.headers["x-audio-model"],
+      provider: response.headers["x-audio-provider"]
+    }
+  end
+
   # Bulk delete insights matching a source string. With prefix=true,
   # source matches by leading substring (e.g. source="audio" deletes all
   # rows whose source begins with "audio:").

@@ -109,6 +109,7 @@ class Api::V1::ProactiveGreetingsController < Api::V1::BaseController
       content:         m.content,
       proactive_skill: m.proactive_skill,
       metadata:        m.metadata,
+      has_audio:       m.audio?,
       created_at:      m.created_at.iso8601
     }
   end

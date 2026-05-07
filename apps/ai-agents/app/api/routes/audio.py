@@ -20,10 +20,11 @@ import logging
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import DbSessionDep, LLMDep, SettingsDep
+from app.audio.synthesis import synthesize_text
 from app.audio.transcription import transcribe_bytes
 from app.chains.insight_chain import InsightExtractionChain
 from app.llm.providers import get_embeddings
@@ -47,6 +48,20 @@ class TranscribeResponse(BaseModel):
     segments: list[dict] = Field(default_factory=list)
     model: str | None = None
     provider: str | None = None
+
+
+class SynthesizeRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=5_000)
+    voice: str | None = Field(
+        default=None,
+        max_length=40,
+        description="Override the configured default voice (e.g. nova, alloy).",
+    )
+    audio_format: str = Field(
+        default="mp3",
+        max_length=8,
+        description="Output container; one of mp3/opus/aac/flac/wav.",
+    )
 
 
 class AudioInsightsRequest(BaseModel):
@@ -165,6 +180,66 @@ async def transcribe(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Audio transcription failed: {exc.__class__.__name__}",
+        ) from exc
+
+
+@router.post(
+    "/synthesize",
+    summary="Synthesize speech from text",
+    description=(
+        "Render text as spoken audio using the configured TTS provider "
+        "(default: OpenAI tts-1 / nova). Returns the raw audio bytes "
+        "so Rails can attach them to a Message via Shrine."
+    ),
+    responses={200: {"content": {"audio/mpeg": {}}}},
+)
+async def synthesize(
+    request: SynthesizeRequest,
+    settings: SettingsDep,
+) -> Response:
+    """Text in, audio bytes out. Stateless."""
+    import time
+
+    t0 = time.perf_counter()
+    logger.info(
+        "audio.synthesize: received chars=%d voice=%s fmt=%s",
+        len(request.text), request.voice, request.audio_format,
+    )
+    try:
+        result = await synthesize_text(
+            request.text,
+            settings=settings,
+            voice=request.voice,
+            audio_format=request.audio_format,
+        )
+        total_ms = (time.perf_counter() - t0) * 1000
+        logger.info(
+            "audio.synthesize: done chars=%d bytes=%d voice=%s model=%s total_ms=%d",
+            len(request.text), len(result.audio), result.voice, result.model, int(total_ms),
+        )
+        return Response(
+            content=result.audio,
+            media_type=result.mime,
+            headers={
+                "X-Audio-Voice":    result.voice or "",
+                "X-Audio-Model":    result.model or "",
+                "X-Audio-Provider": result.provider or "",
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        total_ms = (time.perf_counter() - t0) * 1000
+        logger.exception(
+            "audio.synthesize: failed after %dms class=%s msg=%s",
+            int(total_ms), exc.__class__.__name__, str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Audio synthesis failed: {exc.__class__.__name__}",
         ) from exc
 
 

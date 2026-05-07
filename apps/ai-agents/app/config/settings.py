@@ -173,6 +173,22 @@ class Settings(BaseSettings):
         description="Audio transcription model id (provider-specific).",
     )
 
+    # ── Audio synthesis (TTS) ───────────────────────────────────────────
+    # Used by the chat voice-reply path: when a user sends a voice message,
+    # the assistant's reply is rendered to mp3 and broadcast for playback.
+    audio_tts_provider: str = Field(
+        default="openai",
+        description="Audio synthesis provider; one of {openai}.",
+    )
+    audio_tts_model: str = Field(
+        default="tts-1",
+        description="Audio synthesis model id (provider-specific).",
+    )
+    audio_tts_voice: str = Field(
+        default="nova",
+        description="Default voice id (OpenAI: alloy/echo/fable/onyx/nova/shimmer).",
+    )
+
     # ── Logging ─────────────────────────────────────────────────────────
     log_level: str = "INFO"
 

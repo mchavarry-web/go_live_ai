@@ -26,6 +26,12 @@ class ApiService {
     return headers;
   }
 
+  // Raw token accessor for callers that need to attach the bearer outside
+  // of the standard request() flow (FileSystem.downloadAsync, ws upgrade).
+  async getRawAccessToken() {
+    return AsyncStorage.getItem('access_token');
+  }
+
   async request(endpoint, options = {}) {
     const url = `${API_URL}${endpoint}`;
     const isMultipart = options.body instanceof FormData;
@@ -203,6 +209,49 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ content, client_sent_at: clientSentAt }),
     });
+  }
+
+  // Multipart upload of a recorded voice message. Rails transcribes
+  // synchronously, persists the user message with the transcript as
+  // content + the m4a as a Shrine attachment, and enqueues a voice-mode
+  // ChatGenerationJob (assistant reply gets TTS-rendered).
+  async postVoiceMessage(conversationId, { uri, mime = 'audio/m4a', language } = {}) {
+    if (!uri) return { success: false, error: 'no audio uri' };
+    const url = `${API_URL}/chat/conversations/${encodeURIComponent(conversationId)}/messages/voice`;
+    const headers = await this.getAuthHeaders(true);
+    const form = new FormData();
+    form.append('client_sent_at', new Date().toISOString());
+    if (language) form.append('language', language);
+    form.append('audio', {
+      uri,
+      name: 'voice-message.m4a',
+      type: mime,
+    });
+
+    const controller = new AbortController();
+    // Voice messages need transcription on the server before the response
+    // returns; OpenAI's transcribe is ~1-3s for short clips. Give it 5x.
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT * 5);
+    try {
+      if (DEBUG) console.log(`[API] POST ${url} (voice)`);
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: form,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 401 && this.logoutCallback) this.logoutCallback();
+        return { success: false, error: data.error || `HTTP ${response.status}`, status: response.status };
+      }
+      return { success: true, data, status: response.status };
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') return { success: false, error: 'Request timeout' };
+      return { success: false, error: error.message };
+    }
   }
 
   async proactiveGreeting({

@@ -31,7 +31,7 @@ export class ChatChannel {
   constructor(conversationId) {
     this.conversationId = conversationId;
     this.ws = null;
-    this.handlers = { delta: null, message: null, done: null, error: null };
+    this.handlers = { delta: null, message: null, done: null, error: null, audio: null };
     this.identifier = IDENTIFIER(conversationId);
     this.intentionallyClosed = false;
     this.reconnectAttempts = 0;

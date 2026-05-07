@@ -3,6 +3,8 @@
 class Message < ApplicationRecord
   ROLES = %w[user assistant system].freeze
 
+  include MessageAudioUploader::Attachment(:audio)
+
   belongs_to :conversation
   has_one :user, through: :conversation
 
@@ -14,6 +16,12 @@ class Message < ApplicationRecord
 
   scope :assistant, -> { where(role: "assistant") }
   scope :user_msgs, -> { where(role: "user") }
+
+  # True when an audio file is attached. Used by the JSON serializer to
+  # surface a `has_audio` flag so the Expo client knows to fetch+play.
+  def audio?
+    audio_attacher.attached?
+  end
 
   private
 

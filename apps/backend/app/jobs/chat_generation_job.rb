@@ -18,7 +18,7 @@
 class ChatGenerationJob < ApplicationJob
   queue_as :default
 
-  def perform(conversation_id:, user_message_id:, client_sent_at: nil, api_received_at: nil)
+  def perform(conversation_id:, user_message_id:, client_sent_at: nil, api_received_at: nil, voice_response: false)
     conversation = Conversation.find(conversation_id)
     user_message = Message.find(user_message_id)
     user         = conversation.user
@@ -92,7 +92,8 @@ class ChatGenerationJob < ApplicationJob
       metadata: {
         "generated_by" => "chat_generation_job",
         "status"       => "ok",
-        "telemetry"    => telemetry
+        "telemetry"    => telemetry,
+        "voice_reply"  => voice_response
       }
     )
     ActionCable.server.broadcast(stream_name, {
@@ -103,6 +104,16 @@ class ChatGenerationJob < ApplicationJob
       type: "done",
       assistant_message_id: assistant.id
     })
+
+    # Voice path: render the assistant text to speech, attach the mp3 to
+    # the message, then broadcast a separate {type: "audio"} frame so the
+    # client can fetch + play it. Done after the text "done" so the chat
+    # UI doesn't block on TTS — text appears immediately, audio arrives
+    # ~1-2s later. Failures here are non-fatal: the user still sees the
+    # text reply, just without playback.
+    if voice_response
+      attach_tts_audio(assistant: assistant, stream_name: stream_name)
+    end
 
     # Wave B.4 — durable post-turn learning. Sidekiq retries handle
     # transient failures so the learning pass survives worker restarts,
@@ -165,8 +176,43 @@ class ChatGenerationJob < ApplicationJob
       role:       message.role,
       content:    message.content,
       metadata:   message.metadata,
+      has_audio:  message.audio?,
       created_at: message.created_at.iso8601
     }
+  end
+
+  # Synthesize the assistant text → mp3, attach via Shrine, broadcast an
+  # audio frame so the client knows it can fetch + play. Wrapped in a
+  # rescue because TTS is best-effort: a failure here does not invalidate
+  # the text response that already reached the user.
+  def attach_tts_audio(assistant:, stream_name:)
+    result = AiAgentsClient.new.synthesize_speech(text: assistant.content)
+    if result.nil? || result[:bytes].to_s.empty?
+      Rails.logger.warn("ChatGenerationJob: tts returned nothing for message=#{assistant.id}")
+      return
+    end
+
+    mime = result[:mime] || "audio/mpeg"
+    io = StringIO.new(result[:bytes].dup.force_encoding("ASCII-8BIT"))
+    # Shrine determines mime from the IO + filename; passing the explicit
+    # metadata short-circuits the marcel sniff.
+    assistant.audio_attacher.attach(
+      io,
+      metadata: { "filename" => "tts-#{assistant.id}.mp3", "mime_type" => mime, "size" => result[:bytes].bytesize }
+    )
+    assistant.save!
+
+    ActionCable.server.broadcast(stream_name, {
+      type:                 "audio",
+      assistant_message_id: assistant.id,
+      mime:                 mime
+    })
+    Rails.logger.info(
+      "ChatGenerationJob: tts attached message=#{assistant.id} bytes=#{result[:bytes].bytesize} " \
+      "voice=#{result[:voice].inspect}"
+    )
+  rescue StandardError => e
+    Rails.logger.warn("ChatGenerationJob: tts attach failed message=#{assistant.id} #{e.class}: #{e.message}")
   end
 
   def persist_assistant_failure(conversation:, stream_name:, telemetry:, public_message:)

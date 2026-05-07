@@ -38,8 +38,18 @@ Rails.application.routes.draw do
       # Chat
       scope "chat" do
         resources :conversations, only: %i[index show create destroy] do
-          resources :messages, only: %i[index create]
+          resources :messages, only: %i[index create] do
+            collection do
+              # Multipart audio upload → transcribe → user message →
+              # voice-mode ChatGenerationJob (assistant reply rendered as TTS).
+              post :voice
+            end
+          end
         end
+        # Auth-gated audio bytes for an assistant TTS reply (or a stored
+        # user voice clip). Flat — keyed by message id so the cable
+        # broadcast can carry just the id.
+        get "messages/:id/audio", to: "message_audios#show", as: :message_audio
         post "proactive-greeting", to: "proactive_greetings#create"
       end
 

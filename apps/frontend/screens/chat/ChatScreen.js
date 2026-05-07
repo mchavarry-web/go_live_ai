@@ -37,6 +37,7 @@ import TypingIndicator from '../../components/chat/TypingIndicator';
 import ConversationDrawer from '../../components/chat/ConversationDrawer';
 import apiService from '../../services/apiService';
 import { ChatChannel } from '../../services/chatChannel';
+import { playMessageAudio, stopMessageAudio } from '../../services/audioMessagePlayer';
 import { useAuth } from '../../contexts/AuthContext';
 
 function WelcomeMessage({ avatarName }) {
@@ -236,6 +237,24 @@ export default function ChatScreen({ route, navigation }) {
         setStreamBuffer('');
         setIsSending(false);
         setError(message || 'Error en la conversación');
+      })
+      // Audio frame: emitted by ChatGenerationJob after the assistant
+      // text has been broadcast and the TTS bytes have been attached.
+      // We auto-play immediately so the avatar "speaks back" — no tap
+      // required. The play button on the bubble is just a replay.
+      .on('audio', ({ assistant_message_id }) => {
+        console.log('[chat] audio frame for message=', assistant_message_id);
+        if (!mounted || !assistant_message_id) return;
+        // Mark the persisted message as has_audio so MessageBubble shows
+        // the replay button without waiting for a re-fetch.
+        setMessages((prev) => prev.map((m) => (
+          m.id === assistant_message_id ? { ...m, has_audio: true } : m
+        )));
+        playMessageAudio(assistant_message_id).then((ok) => {
+          console.log('[chat] auto-play result=', ok);
+        }).catch((err) => {
+          console.warn('[chat] auto-play failed', err?.message);
+        });
       });
 
     channel.connect();
@@ -257,6 +276,9 @@ export default function ChatScreen({ route, navigation }) {
       appStateSub.remove();
       channel.disconnect();
       channelRef.current = null;
+      // Cut off any in-progress TTS so it doesn't keep playing when the
+      // user navigates away from the conversation.
+      stopMessageAudio();
     };
   }, [conversationId, clearResponseTimer]);
 
@@ -300,6 +322,54 @@ export default function ChatScreen({ route, navigation }) {
       }
       // Assistant reply arrives over Cable. Start the 30s watchdog so a
       // never-arriving response can't strand the spinner.
+      clearResponseTimer();
+      responseTimerRef.current = setTimeout(() => {
+        responseTimerRef.current = null;
+        setStreaming(false);
+        setStreamBuffer('');
+        setIsSending(false);
+        setError('La respuesta tardó demasiado. Toca Reintentar.');
+      }, RESPONSE_TIMEOUT_MS);
+    },
+    [conversationId, clearResponseTimer],
+  );
+
+  const handleSendVoice = useCallback(
+    async ({ uri, mime, durationSeconds }) => {
+      if (!conversationId) {
+        console.warn('[chat] handleSendVoice called with no conversationId — message swallowed');
+        return;
+      }
+      setError('');
+      setIsSending(true);
+      // Optimistic placeholder: the transcript only lands once Rails
+      // finishes the synchronous transcribe hop, so we render a
+      // "🎤 …" pending bubble in the meantime so the user sees their
+      // input was accepted.
+      const optimistic = {
+        id: `local-voice-${Date.now()}`,
+        role: 'user',
+        content: '🎤 …',
+        metadata: { voice_input: true, pending: true, durationSeconds },
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, optimistic]);
+
+      const { success, data, error: err } = await apiService.postVoiceMessage(
+        conversationId,
+        { uri, mime },
+      );
+      if (!success) {
+        setIsSending(false);
+        setError(err || 'No se pudo enviar el audio. Intenta de nuevo.');
+        setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+        return;
+      }
+      const persisted = data.message || data;
+      if (persisted?.id) {
+        setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? persisted : m)));
+      }
+      // Watchdog parallels the text path.
       clearResponseTimer();
       responseTimerRef.current = setTimeout(() => {
         responseTimerRef.current = null;
@@ -405,7 +475,11 @@ export default function ChatScreen({ route, navigation }) {
           }}
         />
 
-        <ChatInput onSend={handleSend} disabled={isSending || streaming} />
+        <ChatInput
+          onSend={handleSend}
+          onSendVoice={handleSendVoice}
+          disabled={isSending || streaming}
+        />
       </KeyboardAvoidingView>
 
       <ConversationDrawer
