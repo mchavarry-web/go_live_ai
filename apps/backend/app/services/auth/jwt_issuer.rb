@@ -5,8 +5,11 @@
 # in JwtDenylist.
 module Auth
   module JwtIssuer
-    ACCESS_TTL  = 7.days
-    REFRESH_TTL = 30.days
+    # Sessions are intentionally long-lived (10 years) so users effectively
+    # never get logged out by expiry. Invalid/revoked tokens still fail to
+    # decode and trigger the client's silent redirect-to-login path.
+    ACCESS_TTL  = 10.years
+    REFRESH_TTL = 10.years
     ALG         = "HS256"
 
     module_function

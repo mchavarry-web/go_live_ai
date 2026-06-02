@@ -1215,14 +1215,33 @@ class ChatService:
                     ai_first_token_at = _now_iso()
                 streamed_tokens.append(token)
                 yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "Chat streaming failed: user_id=%s, conversation_id=%s",
                 request.user_id,
                 request.conversation_id,
             )
+            # Surface a user-actionable reason instead of a generic failure so
+            # the app can show *why* the avatar is silent. A 429 / quota error
+            # otherwise looks identical to an empty response on the client.
+            status_code = getattr(exc, "status_code", None) or getattr(
+                getattr(exc, "response", None), "status_code", None
+            )
+            exc_name = type(exc).__name__.lower()
+            exc_text = str(exc).lower()
+            if (
+                status_code == 429
+                or "ratelimit" in exc_name
+                or "insufficient_quota" in exc_text
+                or "quota" in exc_text
+            ):
+                error_message = "Quota error: service temporarily unavailable (rate limit)"
+            elif status_code in (401, 403) or "authentication" in exc_name:
+                error_message = "Service temporarily unavailable (auth)"
+            else:
+                error_message = "Service temporarily unavailable"
             error_payload = json.dumps(
-                {"error": "Stream generation failed"}, ensure_ascii=False
+                {"error": error_message}, ensure_ascii=False
             )
             yield f"data: {error_payload}\n\n"
 

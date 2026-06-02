@@ -33,7 +33,7 @@ class Api::V1::Mobile::SessionsController < Api::V1::BaseController
       user: user_json(user),
       token: token,
       refresh_token: refresh_token,
-      expires_at: 90.days.from_now
+      expires_at: 10.years.from_now
     })
   end
 
@@ -42,7 +42,7 @@ class Api::V1::Mobile::SessionsController < Api::V1::BaseController
       user_id: user.id,
       email: user.email,
       role: user.role,
-      exp: 90.days.from_now.to_i,
+      exp: 10.years.from_now.to_i,
       type: "access"
     }
     JWT.encode(payload, Rails.application.secret_key_base, "HS256")
@@ -51,7 +51,7 @@ class Api::V1::Mobile::SessionsController < Api::V1::BaseController
   def generate_refresh_token(user)
     payload = {
       user_id: user.id,
-      exp: 30.days.from_now.to_i,
+      exp: 10.years.from_now.to_i,
       type: "refresh"
     }
     JWT.encode(payload, Rails.application.secret_key_base, "HS256")

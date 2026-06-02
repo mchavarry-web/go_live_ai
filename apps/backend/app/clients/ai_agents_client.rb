@@ -35,12 +35,16 @@ class AiAgentsClient
   # the caller (ChatGenerationJob) can broadcast it directly over ActionCable.
   #
   # Returns a hash with any out-of-band data captured during the stream:
-  #   { telemetry: { ai_received_at:, ai_first_token_at:, ai_last_token_at:, ai_to_api_done_at: } | nil }
+  #   { telemetry: {...} | nil, error: "<reason>" | nil }
   # FastAPI emits a final telemetry frame (kind=:telemetry) right before
   # [DONE] so the caller can stitch it together with its own timestamps.
+  # If generation fails mid-stream FastAPI emits an error frame instead of
+  # tokens; `error` carries that reason (e.g. "Service temporarily
+  # unavailable (rate limit)") so the caller broadcasts it verbatim.
   def stream_chat(payload, &block)
     buffer = +""
     telemetry = nil
+    upstream_error = nil
     flush = lambda do |frame|
       result = parse_sse_frame(frame)
       case result
@@ -52,6 +56,8 @@ class AiAgentsClient
           yield result[:text] if result[:text] && !result[:text].empty?
         when :telemetry
           telemetry = result[:data]
+        when :error
+          upstream_error = result[:message].presence
         end
       end
     end
@@ -70,7 +76,7 @@ class AiAgentsClient
     end
     # flush trailing line if server did not terminate with \n\n
     flush.call(buffer) unless buffer.empty?
-    { telemetry: telemetry }
+    { telemetry: telemetry, error: upstream_error }
   end
 
   def generate_proactive(payload)
@@ -285,7 +291,10 @@ class AiAgentsClient
       end
       return { kind: :telemetry, data: parsed["telemetry"] } if parsed.key?("telemetry")
       return { kind: :token,     text: parsed["token"].to_s } if parsed.key?("token")
-      return "" if parsed.key?("error")  # caller should not append errors
+      # Upstream (FastAPI) reported a generation failure mid-stream — surface
+      # the reason so the caller can broadcast it instead of a blank "empty
+      # response". Not appended to the assistant text.
+      return { kind: :error, message: parsed["error"].to_s } if parsed.key?("error")
       return ""
     end
 

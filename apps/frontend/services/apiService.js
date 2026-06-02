@@ -10,6 +10,18 @@ const API_URL = platformConfig.getApiUrl();
 const API_TIMEOUT = parseInt(config.API_TIMEOUT) || 15000;
 const DEBUG = config.DEBUG === 'true' || config.DEBUG === true;
 
+// Credential-exchange endpoints. A 401 here is a failed login attempt (show
+// the user a message); a 401 on any OTHER endpoint is an expired/invalid
+// session (silently log out + redirect to login, no alert).
+const AUTH_ENDPOINTS = [
+  '/auth/sign_in',
+  '/auth/sign_up',
+  '/auth/google',
+  '/auth/apple',
+  '/auth/facebook',
+  '/auth/refresh',
+];
+
 class ApiService {
   constructor() {
     this.logoutCallback = null;
@@ -51,8 +63,18 @@ class ApiService {
 
       if (!response.ok) {
         if (response.status === 401) {
+          // A 401 on a credential-exchange endpoint (explicit sign in / up /
+          // provider / token refresh) is a login failure — surface a clean
+          // message for the form, but do NOT trigger a global logout.
+          if (AUTH_ENDPOINTS.some((p) => endpoint.startsWith(p))) {
+            throw new Error(data.error || 'Credenciales inválidas.');
+          }
+          // A 401 on any other (authenticated) endpoint means the stored
+          // token is expired/invalid: silently clear auth so the navigator
+          // redirects to login. No user-facing alert — just return a benign
+          // sentinel (error: null) so callers don't pop an error dialog.
           if (this.logoutCallback) this.logoutCallback();
-          throw new Error('Token inválido. Por favor, inicie sesión nuevamente.');
+          return { success: false, sessionExpired: true, error: null };
         }
         throw new Error(data.error || `HTTP ${response.status}`);
       }

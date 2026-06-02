@@ -33,6 +33,7 @@ class ChatGenerationJob < ApplicationJob
     payload = build_payload(conversation, user_message, user)
     accumulated = +""
     chunk_count = 0
+    upstream_error = nil
 
     begin
       stream_result = AiAgentsClient.new.stream_chat(payload) do |chunk|
@@ -41,8 +42,9 @@ class ChatGenerationJob < ApplicationJob
         accumulated << chunk
         ActionCable.server.broadcast(stream_name, { type: "delta", content: chunk })
       end
-      if stream_result.is_a?(Hash) && stream_result[:telemetry].is_a?(Hash)
-        telemetry.merge!(stream_result[:telemetry])
+      if stream_result.is_a?(Hash)
+        telemetry.merge!(stream_result[:telemetry]) if stream_result[:telemetry].is_a?(Hash)
+        upstream_error = stream_result[:error].presence
       end
     rescue StandardError => e
       telemetry["api_to_app_done_at"] = Time.current.iso8601(3)
@@ -64,20 +66,25 @@ class ChatGenerationJob < ApplicationJob
     )
 
     if accumulated.strip.empty?
+      # If FastAPI reported a specific reason mid-stream (e.g. an LLM rate
+      # limit / quota error) surface it verbatim so the app can show *why*
+      # the avatar is silent, instead of an indistinguishable "empty" notice.
+      public_message = upstream_error || "Empty response from avatar; please retry."
       telemetry["api_to_app_done_at"] = Time.current.iso8601(3)
-      telemetry["status"] = "empty"
+      telemetry["status"] = upstream_error ? "error" : "empty"
+      telemetry["error"]  = upstream_error if upstream_error
       assistant = conversation.messages.create!(
         role: "assistant",
-        content: "⚠️ The avatar couldn't respond right now. Please try again.",
+        content: "⚠️ #{upstream_error || "The avatar couldn't respond right now. Please try again."}",
         metadata: {
           "generated_by" => "chat_generation_job",
-          "status"       => "empty_stream",
+          "status"       => upstream_error ? "upstream_error" : "empty_stream",
           "telemetry"    => telemetry
         }
       )
       ActionCable.server.broadcast(stream_name, {
         type: "error",
-        message: "Empty response from avatar; please retry.",
+        message: public_message,
         assistant_message_id: assistant.id
       })
       return
