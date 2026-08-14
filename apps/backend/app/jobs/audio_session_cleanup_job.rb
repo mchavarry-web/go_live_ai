@@ -6,7 +6,7 @@
 #
 # Wired into config/schedule.rb (whenever).
 class AudioSessionCleanupJob < ApplicationJob
-  queue_as :default
+  queue_as :low
 
   STALE_RECORDING_AFTER  = 24.hours
   STALE_PROCESSING_AFTER = 6.hours

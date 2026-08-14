@@ -108,18 +108,69 @@ export default function ChatScreen({ route, navigation }) {
   // effect — that would cancel the in-flight listConversations / create call
   // via the cleanup function and silently leave `conversationId` null.
   const creatingConvRef = useRef(false);
-  // 30s response watchdog. Started when a message POST succeeds; cleared
-  // by the first delta / final message / done / error from cable. Without
-  // it a stuck job (LLM hang, dropped websocket, FastAPI timeout) leaves
-  // the spinner spinning forever and the user can't retry.
+  // Response watchdog. Started when a message POST succeeds, restarted by
+  // the job's {type:"ack"} frame, cleared by the first delta / final
+  // message / done / error from cable. Without it a stuck job (LLM hang,
+  // dropped websocket, FastAPI timeout) leaves the spinner spinning
+  // forever and the user can't retry.
+  //
+  // DEV-92: 60s (was 30s — staging telemetry shows legit first-token
+  // latency of 30-37s), and expiry now REFETCHES before erroring: the
+  // reply is usually persisted server-side seconds later, so recovering
+  // it beats discarding the turn.
   const responseTimerRef = useRef(null);
-  const RESPONSE_TIMEOUT_MS = 30_000;
+  const RESPONSE_TIMEOUT_MS = 60_000;
   const clearResponseTimer = useCallback(() => {
     if (responseTimerRef.current) {
       clearTimeout(responseTimerRef.current);
       responseTimerRef.current = null;
     }
   }, []);
+
+  // The persisted id of the user message whose reply we're waiting on.
+  // Recovery only counts an assistant message that comes AFTER this one —
+  // otherwise a failed send would get "recovered" by the previous turn's
+  // reply and silently swallow the error.
+  const awaitingUserMsgIdRef = useRef(null);
+
+  // Refetch the conversation and, if the assistant reply already landed
+  // (it's persisted before the cable frames go out), render it and clear
+  // the in-flight state. Returns true when a reply was recovered. Used by
+  // the watchdog, by Reintentar (so retry never duplicates a turn that
+  // actually completed), and after a cable resubscribe (frames broadcast
+  // while the socket was down are lost forever).
+  const recoverMissedReply = useCallback(async () => {
+    const awaitedId = awaitingUserMsgIdRef.current;
+    if (!conversationId || !awaitedId) return false;
+    const { success, data } = await apiService.getConversation(conversationId);
+    if (!success) return false;
+    const list = data.conversation?.messages || data.messages || [];
+    const idx = list.findIndex((m) => String(m.id) === String(awaitedId));
+    if (idx === -1) return false;
+    const reply = list.slice(idx + 1).find((m) => m.role === 'assistant');
+    if (!reply) return false;
+    awaitingUserMsgIdRef.current = null;
+    setMessages(list);
+    setStreaming(false);
+    setStreamBuffer('');
+    setIsSending(false);
+    setError('');
+    setLastFailedMessage(null);
+    return true;
+  }, [conversationId]);
+
+  const startResponseTimer = useCallback(() => {
+    clearResponseTimer();
+    responseTimerRef.current = setTimeout(async () => {
+      responseTimerRef.current = null;
+      const recovered = await recoverMissedReply();
+      if (recovered) return;
+      setStreaming(false);
+      setStreamBuffer('');
+      setIsSending(false);
+      setError('La respuesta tardó demasiado. Toca Reintentar.');
+    }, RESPONSE_TIMEOUT_MS);
+  }, [clearResponseTimer, recoverMissedReply]);
 
   const avatarName = user?.avatar?.name || 'tu avatar';
 
@@ -214,14 +265,31 @@ export default function ChatScreen({ route, navigation }) {
       .on('message', ({ message }) => {
         if (!mounted || !message) return;
         clearResponseTimer();
+        awaitingUserMsgIdRef.current = null;
         setStreaming(false);
         setStreamBuffer('');
         setIsSending(false);
         setLastFailedMessage(null);
+        // A late reply after the watchdog already fired: the error banner
+        // must not outlive the answer it was complaining about.
+        setError('');
         setMessages((prev) => {
           if (prev.some((m) => m.id === message.id)) return prev;
           return [...prev, message];
         });
+      })
+      // Job picked up by Sidekiq — generation is genuinely running, so
+      // restart the watchdog: queue wait shouldn't eat generation budget.
+      .on('ack', () => {
+        if (!mounted) return;
+        if (responseTimerRef.current) startResponseTimer();
+      })
+      // Subscription re-confirmed after a drop. Anything broadcast while
+      // the socket was down is gone — refetch so an in-flight turn's
+      // reply (or any missed message) isn't lost.
+      .on('resubscribed', () => {
+        if (!mounted) return;
+        recoverMissedReply();
       })
       .on('done', () => {
         if (!mounted) return;
@@ -280,7 +348,7 @@ export default function ChatScreen({ route, navigation }) {
       // user navigates away from the conversation.
       stopMessageAudio();
     };
-  }, [conversationId, clearResponseTimer]);
+  }, [conversationId, clearResponseTimer, startResponseTimer, recoverMissedReply]);
 
   // Auto-scroll on any change
   useEffect(() => {
@@ -295,7 +363,11 @@ export default function ChatScreen({ route, navigation }) {
         return;
       }
       setError('');
-      // Remember the content while the response is in flight so a 30s
+      // If the OS killed the socket (backgrounding, network blip), kick a
+      // reconnect BEFORE the reply starts broadcasting — cable frames are
+      // fire-and-forget and anything sent while we're down is lost.
+      channelRef.current?.forceReconnect();
+      // Remember the content while the response is in flight so a
       // timeout / cable error can offer the user a retry. Cleared when
       // the assistant message lands.
       setLastFailedMessage(content);
@@ -320,18 +392,13 @@ export default function ChatScreen({ route, navigation }) {
       if (persisted?.id) {
         setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? persisted : m)));
       }
-      // Assistant reply arrives over Cable. Start the 30s watchdog so a
-      // never-arriving response can't strand the spinner.
-      clearResponseTimer();
-      responseTimerRef.current = setTimeout(() => {
-        responseTimerRef.current = null;
-        setStreaming(false);
-        setStreamBuffer('');
-        setIsSending(false);
-        setError('La respuesta tardó demasiado. Toca Reintentar.');
-      }, RESPONSE_TIMEOUT_MS);
+      // Assistant reply arrives over Cable. Start the watchdog so a
+      // never-arriving response can't strand the spinner; on expiry it
+      // refetches before erroring (see startResponseTimer).
+      awaitingUserMsgIdRef.current = persisted?.id || null;
+      startResponseTimer();
     },
-    [conversationId, clearResponseTimer],
+    [conversationId, startResponseTimer],
   );
 
   const handleSendVoice = useCallback(
@@ -370,21 +437,21 @@ export default function ChatScreen({ route, navigation }) {
         setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? persisted : m)));
       }
       // Watchdog parallels the text path.
-      clearResponseTimer();
-      responseTimerRef.current = setTimeout(() => {
-        responseTimerRef.current = null;
-        setStreaming(false);
-        setStreamBuffer('');
-        setIsSending(false);
-        setError('La respuesta tardó demasiado. Toca Reintentar.');
-      }, RESPONSE_TIMEOUT_MS);
+      awaitingUserMsgIdRef.current = persisted?.id || null;
+      startResponseTimer();
     },
-    [conversationId, clearResponseTimer],
+    [conversationId, startResponseTimer],
   );
 
-  const handleRetry = useCallback(() => {
-    if (lastFailedMessage) handleSend(lastFailedMessage);
-  }, [lastFailedMessage, handleSend]);
+  // Recover-first retry: if the reply actually landed (watchdog fired
+  // while generation was merely slow), render it instead of re-sending —
+  // re-POSTing would generate a duplicate assistant turn and double the
+  // mode message counter.
+  const handleRetry = useCallback(async () => {
+    setError('');
+    const recovered = await recoverMissedReply();
+    if (!recovered && lastFailedMessage) handleSend(lastFailedMessage);
+  }, [recoverMissedReply, lastFailedMessage, handleSend]);
 
   const handleSelectConversation = useCallback(
     (id) => {

@@ -9,7 +9,7 @@
 #   - Spotify token auto-refresh when expires_at is past
 #   - Incremental fetch via metadata.last_sync_at
 class FetchSocialDataJob < ApplicationJob
-  queue_as :default
+  queue_as :low
 
   MAX_PAGES       = 5
   BACKOFF_DEFAULT = 5.0

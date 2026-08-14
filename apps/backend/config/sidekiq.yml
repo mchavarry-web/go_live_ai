@@ -1,0 +1,20 @@
+# DEV-92 — chat latency isolation.
+#
+# ChatGenerationJob is the only latency-critical job in the app: the mobile
+# client runs a response watchdog from the moment the message POST returns,
+# so every second a chat job waits in queue is a second stolen from
+# generation. Everything slow or deferrable (post-turn learning, audio
+# transcription, social ingestion, proactive fan-outs) lives on `low` so a
+# burst of background work can never starve chat.
+#
+# Weights are relative polling odds, not strict priorities — `low` still
+# drains, just never at chat's expense.
+#
+# Loaded automatically in dev (`bundle exec sidekiq` from apps/backend).
+# Staging/production: the systemd unit passes `-C shared/config/sidekiq.yml`
+# — keep that file in sync with this one when deploying.
+:concurrency: 10
+:queues:
+  - [chat, 6]
+  - [default, 3]
+  - [low, 1]

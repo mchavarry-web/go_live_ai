@@ -2,7 +2,7 @@
 # processing. Decides between ready / ready_with_errors / failed and writes
 # a per-session outcome summary into metadata.
 class AudioSessionFinalizeJob < ApplicationJob
-  queue_as :default
+  queue_as :low
 
   def perform(session_id:)
     session = AudioSession.find_by(id: session_id)

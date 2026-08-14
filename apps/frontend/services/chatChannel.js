@@ -31,11 +31,26 @@ export class ChatChannel {
   constructor(conversationId) {
     this.conversationId = conversationId;
     this.ws = null;
-    this.handlers = { delta: null, message: null, done: null, error: null, audio: null };
+    this.handlers = {
+      delta: null,
+      message: null,
+      done: null,
+      error: null,
+      audio: null,
+      // { type: 'ack' } — ChatGenerationJob broadcasts this the moment it
+      // starts, letting the screen restart its watchdog from "job started"
+      // instead of timing the whole pipeline from the POST.
+      ack: null,
+      // Fired locally (not a server frame) when the subscription is
+      // re-confirmed after a drop. Frames broadcast while the socket was
+      // down are lost forever, so the screen refetches on this signal.
+      resubscribed: null,
+    };
     this.identifier = IDENTIFIER(conversationId);
     this.intentionallyClosed = false;
     this.reconnectAttempts = 0;
     this.reconnectTimer = null;
+    this.everSubscribed = false;
   }
 
   on(event, fn) {
@@ -82,8 +97,15 @@ export class ChatChannel {
       }
       // ActionCable protocol envelope: { type, identifier, message }
       if (payload.type === 'ping') return;
-      if (payload.type === 'welcome' || payload.type === 'confirm_subscription') {
+      if (payload.type === 'welcome') {
         console.log('[chat-cable]', payload.type);
+        return;
+      }
+      if (payload.type === 'confirm_subscription') {
+        const isResubscription = this.everSubscribed;
+        this.everSubscribed = true;
+        console.log('[chat-cable] confirm_subscription resub=', isResubscription);
+        if (isResubscription) this.handlers.resubscribed?.({});
         return;
       }
       if (payload.type === 'reject_subscription') {

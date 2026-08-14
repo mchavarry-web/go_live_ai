@@ -95,10 +95,15 @@ class Settings(BaseSettings):
     # can be lost on worker restart. When False, Rails owns durability:
     # FastAPI skips the in-process kick, Rails enqueues a Sidekiq job
     # that calls back to ``POST /internal/chat/learn`` synchronously.
-    # Default True for safety during rollout — flip to False once the
-    # durable path has been observed for a release cycle.
+    #
+    # Default False since 2026-08 (DEV-92): the durable Rails path has
+    # been live since Wave B.4, and running BOTH paths doubled the LLM
+    # load per turn — competing with live streams for the event loop and
+    # OpenAI rate limits, and inflating first-token latency past the
+    # client's watchdog. Set POST_TURN_INLINE=true only to bypass a
+    # broken Sidekiq pipeline temporarily.
     post_turn_inline: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Run post-turn learning in-process (True, legacy) or via "
             "Rails Sidekiq + /internal/chat/learn (False, durable)"

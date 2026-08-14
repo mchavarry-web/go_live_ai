@@ -16,13 +16,20 @@
 # failure (empty stream, exception, upstream timeout) we still write
 # whatever timestamps we have — partial logs are useful for triage.
 class ChatGenerationJob < ApplicationJob
-  queue_as :default
+  # Latency-critical: isolated on its own queue so background work
+  # (learning, audio, ingestion) can't delay generation start (DEV-92).
+  queue_as :chat
 
   def perform(conversation_id:, user_message_id:, client_sent_at: nil, api_received_at: nil, voice_response: false)
     conversation = Conversation.find(conversation_id)
     user_message = Message.find(user_message_id)
     user         = conversation.user
     stream_name  = ChatChannel.stream_name_for(conversation.id)
+
+    # Generation can legitimately take >30s (memory gather + LLM first
+    # token); the ack lets the client restart its watchdog from "job
+    # started" instead of timing the whole pipeline from the POST.
+    ActionCable.server.broadcast(stream_name, { type: "ack" })
 
     telemetry = {
       "client_sent_at"     => client_sent_at,

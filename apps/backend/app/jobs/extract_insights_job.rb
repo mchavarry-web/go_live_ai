@@ -3,7 +3,7 @@
 # Asks FastAPI to run platform-specific insight extraction for a user.
 # Idempotent: running it again just refreshes insights.
 class ExtractInsightsJob < ApplicationJob
-  queue_as :default
+  queue_as :low
 
   def perform(user_id:, provider:, payload: nil)
     user = User.find(user_id)

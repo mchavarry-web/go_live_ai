@@ -6,7 +6,7 @@
 #
 # Run via Whenever: every day at 04:00 local (see config/schedule.rb).
 class SyncAvatarCountersJob < ApplicationJob
-  queue_as :default
+  queue_as :low
 
   def perform(user_id: nil)
     scope = user_id.present? ? User.where(id: user_id) : User.all

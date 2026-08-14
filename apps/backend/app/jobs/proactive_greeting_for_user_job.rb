@@ -4,7 +4,7 @@
 # ProactivePushJob so Sidekiq can parallelise per-user work and one slow
 # FastAPI call doesn't stall the batch.
 class ProactiveGreetingForUserJob < ApplicationJob
-  queue_as :default
+  queue_as :low
 
   def perform(user_id:, time_window: nil)
     user = User.find(user_id)

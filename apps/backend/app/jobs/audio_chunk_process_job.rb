@@ -14,7 +14,7 @@
 # fail). Pair with [audio-chunk] (controller) and [audio-up] (frontend) and
 # audio.transcribe / audio.insights (FastAPI) for a full grep-able trail.
 class AudioChunkProcessJob < ApplicationJob
-  queue_as :default
+  queue_as :low
 
   MAX_ATTEMPTS = 5
   retry_on StandardError, wait: :polynomially_longer, attempts: MAX_ATTEMPTS

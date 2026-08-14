@@ -13,7 +13,7 @@
 # Rails-side feature flag below to false during cutover would cause
 # duplicate writes — but the dedupe path (Wave A.3) makes that safe.
 class PostTurnLearningJob < ApplicationJob
-  queue_as :default
+  queue_as :low
 
   def perform(conversation_id:, user_message_id:, assistant_message_id:)
     conversation     = Conversation.find(conversation_id)

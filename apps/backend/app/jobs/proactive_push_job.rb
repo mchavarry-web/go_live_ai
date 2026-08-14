@@ -12,7 +12,7 @@
 # ProactiveGreetingForUserJob (one per user) so a slow user doesn't
 # block others.
 class ProactivePushJob < ApplicationJob
-  queue_as :default
+  queue_as :low
 
   WINDOWS = {
     "morning"   => (6..11),

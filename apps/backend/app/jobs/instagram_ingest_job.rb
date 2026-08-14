@@ -4,7 +4,7 @@
 # extraction. Also refreshes the last-ingested marker on the
 # SocialConnection.
 class InstagramIngestJob < ApplicationJob
-  queue_as :default
+  queue_as :low
 
   def perform(user_id:, payload:)
     ExtractInsightsJob.perform_later(
