@@ -225,6 +225,18 @@ class ApiService {
     return this.request(`/chat/conversations/${id}`);
   }
 
+  // Cursor-paginated message history (DEV-95). Without params Rails returns
+  // the LATEST `limit` (default 30) messages; pass `before` (a message id)
+  // to fetch the page strictly older than that message. Response:
+  // { messages: [...oldest→newest...], has_more: bool }.
+  async getMessages(conversationId, { before, limit } = {}) {
+    const parts = [];
+    if (before) parts.push(`before=${encodeURIComponent(before)}`);
+    if (limit) parts.push(`limit=${encodeURIComponent(limit)}`);
+    const qs = parts.length ? `?${parts.join('&')}` : '';
+    return this.request(`/chat/conversations/${encodeURIComponent(conversationId)}/messages${qs}`);
+  }
+
   async postMessage(conversationId, content) {
     // Stamp the moment the client clicked Send so the backend can log
     // app→API latency on the assistant message metadata.telemetry.

@@ -4,8 +4,13 @@
 # ChatGenerationJob which streams the assistant reply back on the
 # conversation's ActionCable channel.
 #
-#   GET  /api/v1/chat/conversations/:conversation_id/messages
+#   GET  /api/v1/chat/conversations/:conversation_id/messages   ?limit=30&before=<message_id>
 #   POST /api/v1/chat/conversations/:conversation_id/messages   { content, client_sent_at? }
+#
+# DEV-95: #index is cursor-paginated so long conversations open instantly.
+# Without params it returns the LATEST `limit` messages; `before=<id>`
+# returns messages strictly older than that message. Pages are ordered
+# oldest → newest within the page, plus `has_more` for the client.
 #
 # Roundtrip telemetry: an optional `client_sent_at` ISO8601 timestamp from
 # the client, plus `api_received_at` stamped here, are persisted on the
@@ -14,8 +19,34 @@
 class Api::V1::MessagesController < Api::V1::BaseController
   before_action :load_conversation
 
+  DEFAULT_PAGE_SIZE = 30
+  MAX_PAGE_SIZE     = 100
+
   def index
-    render_success(messages: @conversation.messages.map { |m| message_json(m) })
+    limit = params[:limit].to_i
+    limit = DEFAULT_PAGE_SIZE if limit <= 0
+    limit = [limit, MAX_PAGE_SIZE].min
+
+    # Walk backwards from the newest message (or from the `before` cursor).
+    # `id` is a UUID so it can't order chronologically on its own, but it
+    # works as a stable tiebreaker for messages created in the same instant
+    # (Postgres row-value comparison keeps the cursor exact, no OFFSET drift).
+    scope = @conversation.messages.reorder(created_at: :desc, id: :desc)
+    if params[:before].present?
+      anchor = @conversation.messages.find_by(id: params[:before])
+      return render_error("Cursor message not found", :not_found) unless anchor
+      scope = scope.where(
+        "(messages.created_at, messages.id) < (?, ?)",
+        anchor.created_at, anchor.id
+      )
+    end
+
+    page     = scope.limit(limit + 1).to_a
+    has_more = page.size > limit
+    render_success(
+      messages: page.first(limit).reverse.map { |m| message_json(m) },
+      has_more: has_more
+    )
   end
 
   def create

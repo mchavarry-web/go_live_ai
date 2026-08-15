@@ -22,9 +22,23 @@ class Api::V1::ConversationsController < Api::V1::BaseController
     )
   end
 
+  # DEV-95: only the latest page of messages ships with the conversation so
+  # long chats open instantly. Older history is fetched lazily through the
+  # cursor-paginated messages#index (`before=<oldest_visible_id>`).
+  # `has_more_messages` is additive — existing clients that just read
+  # `messages` keep working.
+  LATEST_MESSAGES_LIMIT = 30
+
   def show
     conv = current_user.conversations.find(params[:id])
-    render_success(conversation: summary(conv).merge(messages: conv.messages.map { |m| message_json(m) }))
+    latest   = conv.messages.reorder(created_at: :desc, id: :desc).limit(LATEST_MESSAGES_LIMIT + 1).to_a
+    has_more = latest.size > LATEST_MESSAGES_LIMIT
+    render_success(
+      conversation: summary(conv).merge(
+        messages:          latest.first(LATEST_MESSAGES_LIMIT).reverse.map { |m| message_json(m) },
+        has_more_messages: has_more
+      )
+    )
   rescue ActiveRecord::RecordNotFound
     render_error("Conversation not found", :not_found)
   end

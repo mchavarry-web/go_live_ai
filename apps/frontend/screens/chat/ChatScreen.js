@@ -108,6 +108,26 @@ export default function ChatScreen({ route, navigation }) {
   // effect — that would cancel the in-flight listConversations / create call
   // via the cleanup function and silently leave `conversationId` null.
   const creatingConvRef = useRef(false);
+  // ── History pagination (DEV-95) ──────────────────────────────────
+  // getConversation now returns only the latest 30 messages; older pages
+  // are lazy-loaded when the user scrolls to the top of the list.
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  // Whether the server has messages older than our oldest loaded one.
+  const hasMoreRef = useRef(false);
+  // Re-entrancy guard so a burst of onScroll events near the top doesn't
+  // fire overlapping page fetches.
+  const loadingOlderRef = useRef(false);
+  // While a prepend is settling, the scroll-to-end reactions (auto-scroll
+  // effect + onContentSizeChange) must NOT fire — they'd yank the user
+  // from the history they just pulled down to read.
+  const prependingRef = useRef(false);
+  // Mirror of `messages` so scroll handlers / loaders can read the current
+  // list without being recreated on every message.
+  const messagesRef = useRef([]);
+  // Last scroll offset — lets us trigger "load older" only on genuine
+  // upward scrolls, so the programmatic scrollToEnd on open (which passes
+  // through low offsets going DOWN) can't fire a spurious page fetch.
+  const lastScrollYRef = useRef(0);
   // Response watchdog. Started when a message POST succeeds, restarted by
   // the job's {type:"ack"} frame, cleared by the first delta / final
   // message / done / error from cable. Without it a stuck job (LLM hang,
@@ -150,7 +170,27 @@ export default function ChatScreen({ route, navigation }) {
     const reply = list.slice(idx + 1).find((m) => m.role === 'assistant');
     if (!reply) return false;
     awaitingUserMsgIdRef.current = null;
-    setMessages(list);
+    // getConversation only returns the LATEST page (DEV-95) — don't wipe
+    // older pages the user already lazy-loaded. Keep every already-loaded
+    // message that precedes the refetched window (dedupe by id), then
+    // append the fresh window.
+    setMessages((prev) => {
+      const windowIds = new Set(list.map((m) => String(m.id)));
+      const older = [];
+      for (const m of prev) {
+        if (windowIds.has(String(m.id))) break; // reached the refetched window
+        if (String(m.id).startsWith('local-')) continue; // optimistic leftovers
+        older.push(m);
+      }
+      // Only trust the refetch's has_more flag when we hold no extra pages;
+      // otherwise our local oldest is older than the window's boundary and
+      // the flag would wrongly re-arm (dedupe makes a stray fetch harmless,
+      // but skipping it is cheaper).
+      if (older.length === 0) {
+        hasMoreRef.current = !!data.conversation?.has_more_messages;
+      }
+      return [...older, ...list];
+    });
     setStreaming(false);
     setStreamBuffer('');
     setIsSending(false);
@@ -214,6 +254,10 @@ export default function ChatScreen({ route, navigation }) {
       setMessages([]);
       setStreamBuffer('');
       setStreaming(false);
+      hasMoreRef.current = false;
+      loadingOlderRef.current = false;
+      prependingRef.current = false;
+      setLoadingOlder(false);
     }
   }, [route.params?.conversationId, conversationId]);
 
@@ -226,11 +270,14 @@ export default function ChatScreen({ route, navigation }) {
     if (!conversationId) return undefined;
     let cancelled = false;
     setLoadingHistory(true);
+    hasMoreRef.current = false;
     (async () => {
       const { success, data, error: err } = await apiService.getConversation(conversationId);
       if (cancelled) return;
       if (success) {
+        // Latest page only (DEV-95); older history lazy-loads on scroll-up.
         setMessages(data.conversation?.messages || data.messages || []);
+        hasMoreRef.current = !!data.conversation?.has_more_messages;
         setError('');
       } else {
         setError(err || 'No se pudo cargar la conversación');
@@ -241,6 +288,60 @@ export default function ChatScreen({ route, navigation }) {
       cancelled = true;
     };
   }, [conversationId]);
+
+  // Keep messagesRef in sync so scroll handlers can read the current list
+  // without re-subscribing on every render.
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // Fetch the page of messages older than the oldest one on screen and
+  // prepend it. maintainVisibleContentPosition on the FlatList keeps the
+  // viewport anchored on the row the user was reading while rows appear
+  // above it.
+  const loadOlderMessages = useCallback(async () => {
+    if (!conversationId || loadingOlderRef.current || !hasMoreRef.current) return;
+    const oldest = messagesRef.current.find((m) => !String(m.id).startsWith('local-'));
+    if (!oldest) return;
+    loadingOlderRef.current = true;
+    prependingRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const { success, data } = await apiService.getMessages(conversationId, { before: oldest.id });
+      if (success) {
+        hasMoreRef.current = !!data.has_more;
+        const older = data.messages || [];
+        if (older.length > 0) {
+          setMessages((prev) => {
+            const seen = new Set(prev.map((m) => String(m.id)));
+            const fresh = older.filter((m) => !seen.has(String(m.id)));
+            return fresh.length > 0 ? [...fresh, ...prev] : prev;
+          });
+        }
+      }
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+      // Release the scroll-to-end guard once the prepended rows have
+      // rendered and mVCP has re-anchored the viewport.
+      setTimeout(() => {
+        prependingRef.current = false;
+      }, 250);
+    }
+  }, [conversationId]);
+
+  // Trigger "load older" only on a genuine upward scroll near the top —
+  // the offset check alone would also match the programmatic scrollToEnd
+  // pass on open (it sweeps through low offsets heading DOWN).
+  const handleScroll = useCallback(
+    ({ nativeEvent }) => {
+      const y = nativeEvent.contentOffset.y;
+      const scrollingUp = y < lastScrollYRef.current;
+      lastScrollYRef.current = y;
+      if (scrollingUp && y < 80) loadOlderMessages();
+    },
+    [loadOlderMessages],
+  );
 
   // ActionCable subscription — separate effect with its own lifecycle so the
   // channel reconnects cleanly on conversationId change.
@@ -350,9 +451,14 @@ export default function ChatScreen({ route, navigation }) {
     };
   }, [conversationId, clearResponseTimer, startResponseTimer, recoverMissedReply]);
 
-  // Auto-scroll on any change
+  // Auto-scroll on any change — except while older history is being
+  // prepended (messages.length grows then too, and scrolling to end would
+  // rip the user away from what they scrolled up to read).
   useEffect(() => {
-    const id = setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+    if (prependingRef.current) return undefined;
+    const id = setTimeout(() => {
+      if (!prependingRef.current) listRef.current?.scrollToEnd({ animated: true });
+    }, 50);
     return () => clearTimeout(id);
   }, [messages.length, streamBuffer]);
 
@@ -515,7 +621,20 @@ export default function ChatScreen({ route, navigation }) {
             messages.length === 0 && styles.messagesListEmpty,
           ]}
           showsVerticalScrollIndicator={false}
+          // Prepending older pages must not shift what the user is looking
+          // at: keep the first visible row anchored while rows are inserted
+          // above it (supported for plain lists on RN 0.7x).
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          onScroll={handleScroll}
+          scrollEventThrottle={100}
           ListEmptyComponent={<WelcomeMessage avatarName={avatarName} />}
+          ListHeaderComponent={
+            loadingOlder ? (
+              <View style={styles.loadOlderContainer}>
+                <ActivityIndicator size="small" color={colors.primary} />
+              </View>
+            ) : null
+          }
           ListFooterComponent={
             <>
               <TypingIndicator isVisible={isSending && !streaming} />
@@ -531,12 +650,12 @@ export default function ChatScreen({ route, navigation }) {
             </>
           }
           onContentSizeChange={() => {
-            if (messages.length > 0) {
+            if (messages.length > 0 && !prependingRef.current) {
               listRef.current?.scrollToEnd({ animated: false });
             }
           }}
           onLayout={() => {
-            if (messages.length > 0) {
+            if (messages.length > 0 && !prependingRef.current) {
               listRef.current?.scrollToEnd({ animated: false });
             }
           }}
@@ -578,6 +697,11 @@ const styles = StyleSheet.create({
   },
   messagesList: {
     paddingVertical: spacing.sm,
+  },
+  loadOlderContainer: {
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   messagesListEmpty: {
     flex: 1,
