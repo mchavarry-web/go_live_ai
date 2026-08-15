@@ -9,10 +9,10 @@
 // floating RecordingBar that overlapped the chat input.
 import React from 'react';
 import { Pressable, View, StyleSheet } from 'react-native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createBottomTabNavigator, BottomTabBar } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, borders, spacing } from '../theme';
 import HomeScreen from '../screens/HomeScreen';
@@ -98,18 +98,43 @@ function AudioTabButton(props) {
   );
 }
 
+// Wraps React Navigation's default BottomTabBar in a native SafeAreaView
+// that owns the bottom inset (DEV-96). Previously we baked
+// `Math.max(insets.bottom, 24)` from the JS `useSafeAreaInsets()` hook into
+// tabBarStyle's height/paddingBottom. That value is delivered
+// asynchronously over the bridge and on some Androids (Samsung, esp. after
+// the keyboard resizes the window in `softwareKeyboardLayoutMode:
+// 'resize'`) it reads 0/stale, so a 3-button nav bar (~48dp) overlapped
+// the bottom 24dp of the bar — exactly where the labels sit. SafeAreaView
+// applies the inset as padding synchronously on the native side, so the
+// bar always clears the system nav regardless of what the JS hook reports.
+// The inner BottomTabBar gets `insets.bottom: 0` so the inset is counted
+// exactly once (SafeAreaView pads; the bar itself must not).
+function InsetAwareTabBar(props) {
+  return (
+    <SafeAreaView edges={['bottom']} style={styles.tabBarSafeArea}>
+      <BottomTabBar {...props} insets={{ ...props.insets, bottom: 0 }} />
+    </SafeAreaView>
+  );
+}
+
 export default function MainTabs() {
-  // Honor the bottom safe-area inset so the tab bar clears the iOS home
-  // indicator (~34dp) and Android's gesture bar / 3-button nav (~0–48dp).
-  // Hard-coding paddingBottom — as we used to — buried the labels under
-  // Android's nav. The floor only kicks in on Android (iOS inset > 24
-  // always); the floor value was tuned by eyeball on a Samsung gesture
-  // nav phone — anything lower clipped the labels.
+  // Aesthetic floor only: on devices whose bottom inset is < 24dp (Android
+  // gesture nav with the hint bar hidden, older devices reporting 0, web)
+  // top the bar's own paddingBottom up so labels keep the same breathing
+  // room they had with the old `max(insets.bottom, 24)` floor. When the
+  // inset is >= 24 (iOS home indicator ~34, Android 3-button ~48, gesture
+  // hint ~24) this is 0 and the SafeAreaView wrapper provides all the
+  // clearance — identical total height to the previous code, so iOS
+  // rendering is unchanged. If the JS inset briefly reads 0 while native
+  // knows better, the worst case is transient extra padding — never
+  // clipped labels.
   const insets = useSafeAreaInsets();
-  const bottomPad = Math.max(insets.bottom, 24);
+  const floorTopUp = Math.max(24 - insets.bottom, 0);
 
   return (
     <Tab.Navigator
+      tabBar={(props) => <InsetAwareTabBar {...props} />}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
@@ -118,8 +143,8 @@ export default function MainTabs() {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
           borderTopWidth: borders.width.thin,
-          height: 56 + bottomPad,
-          paddingBottom: bottomPad,
+          height: 56 + floorTopUp,
+          paddingBottom: floorTopUp,
           paddingTop: 8,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
@@ -149,6 +174,11 @@ export default function MainTabs() {
 }
 
 const styles = StyleSheet.create({
+  // Must match tabBarStyle.backgroundColor so the safe-area padding band
+  // below the bar reads as part of the bar, not a stray strip.
+  tabBarSafeArea: {
+    backgroundColor: colors.surface,
+  },
   badge: {
     position: 'absolute',
     top: -4,
