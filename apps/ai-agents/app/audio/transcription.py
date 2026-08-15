@@ -21,6 +21,42 @@ from app.config.settings import Settings
 logger = logging.getLogger(__name__)
 
 
+class TranscriptionError(RuntimeError):
+    """Provider-level transcription failure with a machine-readable kind.
+
+    ``kind`` is one of:
+        - ``"quota"``              → rate limit / insufficient_quota (429)
+        - ``"unsupported_format"`` → provider rejected the file (4xx)
+        - ``"provider_error"``     → anything else (auth, 5xx, transport)
+
+    Subclasses ``RuntimeError`` so pre-existing callers that rescue
+    ``RuntimeError`` (e.g. the missing-API-key path) keep working.
+    """
+
+    def __init__(self, message: str, *, kind: str = "provider_error") -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
+def classify_provider_error(exc: Exception) -> str:
+    """Map a provider exception to a ``TranscriptionError`` kind."""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    text = f"{type(exc).__name__} {exc}".lower()
+    compact = text.replace(" ", "").replace("_", "")
+    if status == 429 or "ratelimit" in compact or "quota" in compact:
+        return "quota"
+    if (
+        (isinstance(status, int) and 400 <= status < 500 and status not in (401, 403))
+        or "invalid file" in text
+        or "unsupported" in text
+        or "could not be decoded" in text
+    ):
+        return "unsupported_format"
+    return "provider_error"
+
+
 @dataclass
 class TranscriptionSegment:
     start: float
@@ -94,7 +130,9 @@ async def _transcribe_openai(
     api_key = settings.openai_api_key.get_secret_value()
     if not api_key:
         logger.error("audio.openai: OPENAI_API_KEY is not set")
-        raise RuntimeError("OPENAI_API_KEY is not set; cannot transcribe.")
+        raise TranscriptionError(
+            "OPENAI_API_KEY is not set; cannot transcribe.", kind="provider_error"
+        )
 
     model = settings.audio_transcription_model
     client = AsyncOpenAI(api_key=api_key)
@@ -121,11 +159,14 @@ async def _transcribe_openai(
         # Surface OpenAI error details — these usually carry a readable
         # body explaining why (rate limit, invalid format, key issue).
         body = getattr(exc, "body", None) or getattr(exc, "response", None)
+        kind = classify_provider_error(exc)
         logger.error(
-            "audio.openai: ← FAIL took=%dms class=%s msg=%s body=%s",
-            int(took_ms), exc.__class__.__name__, str(exc), repr(body)[:500],
+            "audio.openai: ← FAIL took=%dms kind=%s class=%s msg=%s body=%s",
+            int(took_ms), kind, exc.__class__.__name__, str(exc), repr(body)[:500],
         )
-        raise
+        raise TranscriptionError(
+            f"{exc.__class__.__name__}: {exc}", kind=kind
+        ) from exc
 
     took_ms = (time.perf_counter() - t0) * 1000
     text = getattr(resp, "text", "") or ""

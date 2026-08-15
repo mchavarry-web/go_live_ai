@@ -24,7 +24,11 @@ from httpx import ASGITransport, AsyncClient
 
 from app.api.deps import get_db_session, get_llm_provider
 from app.api.internal_auth import require_internal_token
-from app.audio.transcription import Transcription, TranscriptionSegment
+from app.audio.transcription import (
+    Transcription,
+    TranscriptionError,
+    TranscriptionSegment,
+)
 from app.main import app
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -121,6 +125,63 @@ class TestTranscribeRoute:
 
         assert resp.status_code == 400
         assert called["hit"] is False
+
+    async def test_success_has_null_error(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def _fake_transcribe(*_args: object, **_kwargs: object) -> Transcription:
+            return Transcription(text="hola", language="es")
+
+        monkeypatch.setattr(
+            "app.api.routes.audio.transcribe_bytes", _fake_transcribe
+        )
+
+        files = {"audio": ("chunk.m4a", b"bytes", "audio/m4a")}
+        resp = await client.post(
+            "/internal/audio/transcribe", files=files, data={"user_id": "u-1"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["error"] is None
+
+    async def test_provider_failure_returns_error_kind(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # DEV-97 contract: provider failures come back as HTTP 200 with
+        # text="" and a machine-readable `error` so Rails can pick copy.
+        async def _fake_transcribe(*_args: object, **_kwargs: object) -> Transcription:
+            raise TranscriptionError("insufficient_quota", kind="quota")
+
+        monkeypatch.setattr(
+            "app.api.routes.audio.transcribe_bytes", _fake_transcribe
+        )
+
+        files = {"audio": ("chunk.m4a", b"bytes", "audio/m4a")}
+        resp = await client.post(
+            "/internal/audio/transcribe", files=files, data={"user_id": "u-1"}
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["text"] == ""
+        assert body["error"] == "quota"
+
+    async def test_unexpected_failure_returns_provider_error(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def _fake_transcribe(*_args: object, **_kwargs: object) -> Transcription:
+            raise Exception("boom")
+
+        monkeypatch.setattr(
+            "app.api.routes.audio.transcribe_bytes", _fake_transcribe
+        )
+
+        files = {"audio": ("chunk.m4a", b"bytes", "audio/m4a")}
+        resp = await client.post(
+            "/internal/audio/transcribe", files=files, data={"user_id": "u-1"}
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["text"] == ""
+        assert body["error"] == "provider_error"
 
 
 # ── /internal/audio/extract_insights ───────────────────────────────────

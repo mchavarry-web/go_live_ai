@@ -55,10 +55,15 @@ class AudioChunkProcessJob < ApplicationJob
     transcription = call_transcribe(chunk, user)
     transcribe_ms = monotonic_ms - started_at
 
-    text     = transcription.is_a?(Hash) ? transcription["text"].to_s : ""
-    segments = transcription.is_a?(Hash) ? Array(transcription["segments"]) : []
-    language = transcription.is_a?(Hash) ? transcription["language"] : nil
-    model    = transcription.is_a?(Hash) ? transcription["model"]    : nil
+    text       = transcription.is_a?(Hash) ? transcription["text"].to_s : ""
+    segments   = transcription.is_a?(Hash) ? Array(transcription["segments"]) : []
+    language   = transcription.is_a?(Hash) ? transcription["language"] : nil
+    model      = transcription.is_a?(Hash) ? transcription["model"]    : nil
+    # Additive failure discriminator from FastAPI (DEV-97):
+    # "quota" | "unsupported_format" | "provider_error" | nil (success or
+    # provider heard silence). Used for logging/metadata only — retry
+    # semantics are unchanged.
+    error_kind = transcription.is_a?(Hash) ? transcription["error"].presence : nil
 
     Rails.logger.info(
       "[audio-job] transcribe done chunk=#{chunk.id} took=#{transcribe_ms.to_i}ms " \
@@ -68,9 +73,11 @@ class AudioChunkProcessJob < ApplicationJob
     if text.strip.empty?
       Rails.logger.warn(
         "[audio-job] transcribe empty chunk=#{chunk.id} took=#{transcribe_ms.to_i}ms " \
+        "error=#{error_kind.inspect} " \
         "raw_response_keys=#{transcription.is_a?(Hash) ? transcription.keys.inspect : transcription.class.name}"
       )
-      mark_failed(chunk, "empty transcription response")
+      reason = error_kind ? "transcription failed: #{error_kind}" : "empty transcription response"
+      mark_failed(chunk, reason, error_kind: error_kind)
       check_session_done(session)
       return
     end
@@ -160,11 +167,13 @@ class AudioChunkProcessJob < ApplicationJob
     # re-derived later via a maintenance task.
   end
 
-  def mark_failed(chunk, reason)
+  def mark_failed(chunk, reason, error_kind: nil)
     return unless chunk
+    extra = { "last_error" => reason }
+    extra["last_error_kind"] = error_kind if error_kind
     chunk.update!(
       transcription_status: "failed",
-      metadata: chunk.metadata.merge("last_error" => reason)
+      metadata: chunk.metadata.merge(extra)
     )
   end
 

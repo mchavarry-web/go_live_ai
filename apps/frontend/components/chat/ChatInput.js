@@ -25,12 +25,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  RecordingPresets,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
-  useAudioRecorder,
 } from 'expo-audio';
 
+import {
+  MIN_RECORDING_SECONDS,
+  RECORDING_PRESET,
+  useAudioRecorder,
+} from '../../services/audioRecorder';
 import { colors, spacing, borders, typography } from '../../theme';
 import Text from '../ui/Text';
 
@@ -56,6 +59,9 @@ function ChatInput({
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [permError, setPermError] = useState(false);
+  // Non-permission recording problem (too short / recorder failed) shown
+  // as a caption above the input; cleared on the next mic press or send.
+  const [recordError, setRecordError] = useState(null);
   const inputRef = useRef(null);
   const startedAtRef = useRef(null);
   const elapsedTimerRef = useRef(null);
@@ -63,7 +69,9 @@ function ChatInput({
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
   // Hook returns an `AudioRecorder` shared object. Reused across recordings.
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  // RECORDING_PRESET pins mono AAC/m4a with explicit Android encoder
+  // settings so transcription gets a decodable file on every device.
+  const recorder = useAudioRecorder(RECORDING_PRESET);
 
   const canSend = text.trim().length > 0 && !disabled;
   const canRecord = !disabled && typeof onSendVoice === 'function';
@@ -106,6 +114,7 @@ function ChatInput({
     console.log('[chat-input] mic press canRecord=', canRecord);
     if (!canRecord) return;
     setPermError(false);
+    setRecordError(null);
 
     const status = await requestRecordingPermissionsAsync();
     const granted = status?.granted === true || status?.status === 'granted';
@@ -177,8 +186,16 @@ function ChatInput({
     const durationSeconds = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 1000)) : 0;
     console.log('[chat-input] finish uri=', uri, 'duration=', durationSeconds, 's');
 
-    // Min duration guard so a stray tap doesn't upload silence.
-    if (!uri || durationSeconds < 1) return;
+    // Min duration guard so a stray tap doesn't upload silence — sub-second
+    // clips transcribe to "" and surface as a confusing server error.
+    if (!uri || durationSeconds < MIN_RECORDING_SECONDS) {
+      console.log('[chat-input] discarding recording uri=', !!uri, 'duration=', durationSeconds);
+      setRecordError(
+        uri ? 'El audio es muy corto.' : 'No pudimos grabar el audio. Intenta de nuevo.',
+      );
+      return;
+    }
+    setRecordError(null);
     onSendVoice({ uri, durationSeconds, mime: 'audio/m4a' });
   }, [recorder, onSendVoice, stopElapsedTimer]);
 
@@ -233,6 +250,11 @@ function ChatInput({
       {permError ? (
         <Text variant="caption" color={colors.error} style={styles.permError}>
           Necesitamos permiso para usar el micrófono.
+        </Text>
+      ) : null}
+      {recordError ? (
+        <Text variant="caption" color={colors.error} style={styles.permError}>
+          {recordError}
         </Text>
       ) : null}
       <View style={styles.inputRow}>

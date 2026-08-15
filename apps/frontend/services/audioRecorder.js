@@ -11,7 +11,35 @@ import {
   useAudioRecorder,
 } from 'expo-audio';
 
-const RECORDING_PRESET = RecordingPresets.HIGH_QUALITY;
+// Explicit AAC/m4a mono profile (DEV-97). We base it on HIGH_QUALITY but
+// pin what transcription cares about instead of trusting preset defaults:
+//   - Android: outputFormat/audioEncoder pinned to mpeg4/aac — some OEM
+//     builds fall back to 3gp/amr when the encoder isn't explicit, which
+//     gpt-4o-mini-transcribe handles poorly (→ empty transcripts).
+//   - mono, 44.1kHz (≥16kHz needed by speech models), 96kbps — smaller
+//     uploads than the stereo 128kbps preset with no accuracy loss.
+const BASE_PRESET = RecordingPresets.HIGH_QUALITY;
+const RECORDING_PRESET = {
+  ...BASE_PRESET,
+  numberOfChannels: 1,
+  sampleRate: 44100,
+  bitRate: 96000,
+  android: {
+    ...(BASE_PRESET.android || {}),
+    outputFormat: 'mpeg4',
+    audioEncoder: 'aac',
+    sampleRate: 44100,
+  },
+  ios: {
+    ...(BASE_PRESET.ios || {}),
+    sampleRate: 44100,
+    numberOfChannels: 1,
+  },
+};
+
+// Clips shorter than this are rejected before upload — sub-second files
+// are almost always a stray tap and transcribe to "" (DEV-97).
+export const MIN_RECORDING_SECONDS = 1;
 
 export async function ensurePermission() {
   const status = await AudioModule.requestRecordingPermissionsAsync();

@@ -74,13 +74,18 @@ class Api::V1::MessagesController < Api::V1::BaseController
       language: language
     )
     transcript = transcription.is_a?(Hash) ? transcription["text"].to_s.strip : ""
+    error_kind = transcription.is_a?(Hash) ? transcription["error"].presence : nil
 
     if transcript.empty?
+      # FastAPI's /internal/audio/transcribe reports the failure mode in the
+      # additive `error` field: "quota" | "unsupported_format" |
+      # "provider_error". Absent/nil error + empty text means the provider
+      # answered but heard nothing intelligible (silence, background noise).
       Rails.logger.warn(
         "[messages#voice] empty transcript user=#{current_user.id} conv=#{@conversation.id} " \
-        "lang=#{language.inspect} resp=#{transcription.inspect.first(300)}"
+        "lang=#{language.inspect} error=#{error_kind.inspect} resp=#{transcription.inspect.first(300)}"
       )
-      return render_error("No pudimos entender el audio. Intenta de nuevo.", :unprocessable_entity)
+      return render_error(voice_transcription_error_message(error_kind), :unprocessable_entity)
     end
 
     user_telemetry = {
@@ -118,6 +123,22 @@ class Api::V1::MessagesController < Api::V1::BaseController
   end
 
   private
+
+  # Distinct Spanish copy per transcription failure mode (DEV-97).
+  #   nil / unknown       → provider heard nothing → coach the user
+  #   "quota"             → daily audio cap reached
+  #   "provider_error" /
+  #   "unsupported_format"→ upstream/service problem → try later
+  def voice_transcription_error_message(error_kind)
+    case error_kind
+    when "quota"
+      "Has alcanzado el límite de audio por hoy."
+    when "provider_error", "unsupported_format"
+      "El servicio de audio no está disponible en este momento. Intenta más tarde."
+    else
+      "No pudimos entender el audio. Intenta hablar más cerca del micrófono."
+    end
+  end
 
   def load_conversation
     @conversation = current_user.conversations.find(params[:conversation_id])

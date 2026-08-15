@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import DbSessionDep, LLMDep, SettingsDep
 from app.audio.synthesis import synthesize_text
-from app.audio.transcription import transcribe_bytes
+from app.audio.transcription import TranscriptionError, transcribe_bytes
 from app.chains.insight_chain import InsightExtractionChain
 from app.llm.providers import get_embeddings
 from app.models.schemas import Insight
@@ -48,6 +48,10 @@ class TranscribeResponse(BaseModel):
     segments: list[dict] = Field(default_factory=list)
     model: str | None = None
     provider: str | None = None
+    # Failure discriminator. ``None`` on success; on failure ``text`` is ""
+    # and this is one of "quota" | "unsupported_format" | "provider_error".
+    # Additive — existing callers that only read ``text`` keep working.
+    error: str | None = None
 
 
 class SynthesizeRequest(BaseModel):
@@ -165,9 +169,20 @@ async def transcribe(
             segments=[s.__dict__ for s in result.segments],
             model=result.model,
             provider=result.provider,
+            error=None,
         )
     except HTTPException:
         raise
+    except TranscriptionError as exc:
+        total_ms = (time.perf_counter() - t0) * 1000
+        logger.warning(
+            "audio.transcribe: provider failure user_id=%s after %dms kind=%s msg=%s",
+            user_id,
+            int(total_ms),
+            exc.kind,
+            str(exc),
+        )
+        return TranscribeResponse(text="", error=exc.kind)
     except Exception as exc:
         total_ms = (time.perf_counter() - t0) * 1000
         logger.exception(
@@ -177,10 +192,7 @@ async def transcribe(
             exc.__class__.__name__,
             str(exc),
         )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Audio transcription failed: {exc.__class__.__name__}",
-        ) from exc
+        return TranscribeResponse(text="", error="provider_error")
 
 
 @router.post(

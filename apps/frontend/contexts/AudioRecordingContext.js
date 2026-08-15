@@ -22,12 +22,11 @@ import React, {
 
 import {
   AudioModule,
-  RecordingPresets,
   setAudioModeAsync,
-  useAudioRecorder,
 } from 'expo-audio';
 
 import apiService from '../services/apiService';
+import { RECORDING_PRESET, useAudioRecorder } from '../services/audioRecorder';
 import audioUploader from '../services/audioUploader';
 import { useAuth } from './AuthContext';
 
@@ -50,7 +49,9 @@ export function AudioRecordingProvider({ children }) {
   const [pendingUploads, setPendingUploads] = useState(0);
   const [error, setError] = useState(null);
 
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  // Shared hardened preset: mono AAC/m4a with explicit Android encoder
+  // settings (see services/audioRecorder.js, DEV-97).
+  const recorder = useAudioRecorder(RECORDING_PRESET);
   const sessionRef = useRef(null);
   const sequenceRef = useRef(0);
   const chunkStartRef = useRef(null);

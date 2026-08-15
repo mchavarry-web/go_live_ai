@@ -6,6 +6,8 @@ They cover:
 - whisper-1 path (segments parsed, ``response_format="verbose_json"`` set)
 - error path when ``OPENAI_API_KEY`` is empty
 - unknown provider raises ``ValueError``
+- provider failures wrapped in ``TranscriptionError`` with a classified
+  ``kind`` (quota / unsupported_format / provider_error) — DEV-97
 """
 
 from types import SimpleNamespace
@@ -16,7 +18,9 @@ from pydantic import SecretStr
 
 from app.audio.transcription import (
     Transcription,
+    TranscriptionError,
     TranscriptionSegment,
+    classify_provider_error,
     transcribe_bytes,
 )
 from app.config.settings import Settings
@@ -92,6 +96,58 @@ class TestTranscribeBytes:
         with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
             await transcribe_bytes(b"x", settings=settings)
 
+    async def test_missing_api_key_is_provider_error_kind(self) -> None:
+        settings = _settings(api_key="")
+        with pytest.raises(TranscriptionError) as exc_info:
+            await transcribe_bytes(b"x", settings=settings)
+        assert exc_info.value.kind == "provider_error"
+
+    async def test_provider_429_raises_quota_kind(self) -> None:
+        settings = _settings()
+        boom = Exception("Rate limit reached / insufficient_quota")
+        boom.status_code = 429  # type: ignore[attr-defined]
+
+        with patch("app.audio.transcription.AsyncOpenAI") as fake_client_cls:
+            client = MagicMock()
+            client.audio.transcriptions.create = AsyncMock(side_effect=boom)
+            fake_client_cls.return_value = client
+
+            with pytest.raises(TranscriptionError) as exc_info:
+                await transcribe_bytes(b"x", settings=settings)
+
+        assert exc_info.value.kind == "quota"
+        assert exc_info.value.__cause__ is boom
+
+    async def test_provider_400_raises_unsupported_format_kind(self) -> None:
+        settings = _settings()
+        boom = Exception("Invalid file format.")
+        boom.status_code = 400  # type: ignore[attr-defined]
+
+        with patch("app.audio.transcription.AsyncOpenAI") as fake_client_cls:
+            client = MagicMock()
+            client.audio.transcriptions.create = AsyncMock(side_effect=boom)
+            fake_client_cls.return_value = client
+
+            with pytest.raises(TranscriptionError) as exc_info:
+                await transcribe_bytes(b"x", settings=settings)
+
+        assert exc_info.value.kind == "unsupported_format"
+
+    async def test_provider_5xx_raises_provider_error_kind(self) -> None:
+        settings = _settings()
+        boom = Exception("upstream exploded")
+        boom.status_code = 500  # type: ignore[attr-defined]
+
+        with patch("app.audio.transcription.AsyncOpenAI") as fake_client_cls:
+            client = MagicMock()
+            client.audio.transcriptions.create = AsyncMock(side_effect=boom)
+            fake_client_cls.return_value = client
+
+            with pytest.raises(TranscriptionError) as exc_info:
+                await transcribe_bytes(b"x", settings=settings)
+
+        assert exc_info.value.kind == "provider_error"
+
     async def test_unknown_provider_raises(self) -> None:
         settings = Settings(
             openai_api_key=SecretStr("sk-test"),
@@ -101,6 +157,17 @@ class TestTranscribeBytes:
         )
         with pytest.raises(ValueError, match="Unknown AUDIO_TRANSCRIPTION_PROVIDER"):
             await transcribe_bytes(b"x", settings=settings)
+
+    async def test_auth_error_is_provider_error_not_unsupported(self) -> None:
+        # 401/403 are excluded from the 4xx → unsupported_format bucket.
+        boom = Exception("Incorrect API key provided")
+        boom.status_code = 401  # type: ignore[attr-defined]
+        assert classify_provider_error(boom) == "provider_error"
+
+    async def test_classify_without_status_falls_back_to_message(self) -> None:
+        assert classify_provider_error(Exception("insufficient_quota for org")) == "quota"
+        assert classify_provider_error(Exception("Unsupported codec")) == "unsupported_format"
+        assert classify_provider_error(Exception("connection reset")) == "provider_error"
 
     async def test_to_dict_serializes_segments(self) -> None:
         t = Transcription(
