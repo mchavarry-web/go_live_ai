@@ -176,10 +176,12 @@ class ApiService {
     return this.request('/avatar/insights', { method: 'DELETE' });
   }
 
-  async teachAvatar(message) {
+  async teachAvatar(message, category) {
+    const body = { message };
+    if (category) body.category = category;
     return this.request('/avatar/teach', {
       method: 'POST',
-      body: JSON.stringify({ message }),
+      body: JSON.stringify(body),
     });
   }
 

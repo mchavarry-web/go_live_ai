@@ -130,11 +130,34 @@ class AiAgentsClient
     self.class.delete("/internal/memory/#{user_id}").code == 204
   end
 
-  def teach(user_id:, message:, context: "")
-    post_json(
-      "/internal/insights/extract",
-      { user_id: user_id, message: message, context: context }
+  # Direct manual-fact storage (DEV-93). Hits FastAPI's teach route, which
+  # embeds the text and stores an ACTIVE insight (source: manual,
+  # confidence 1.0) so it is immediately retrievable by chat-time semantic
+  # search — unlike /internal/insights/extract, whose LLM chain can
+  # legitimately store nothing (confidence floors, dedupe, quota errors).
+  #
+  # Returns the stored Insight hash ({id, user_id, category, content,
+  # confidence, source, created_at}) or nil on failure.
+  def teach(user_id:, message:, category: nil)
+    body = { content: message }
+    body[:category] = category if category.present?
+    response = self.class.post(
+      "/internal/memory/#{user_id}/teach",
+      body: body.to_json,
+      headers: { "Content-Type" => "application/json" },
+      timeout: 30
     )
+    if response.code >= 400
+      Rails.logger.warn(
+        "[ai-client] teach non-2xx user=#{user_id} http=#{response.code} " \
+        "body=#{response.body.to_s.first(500)}"
+      )
+      return nil
+    end
+    response.parsed_response
+  rescue StandardError => e
+    Rails.logger.warn("[ai-client] teach failed user=#{user_id}: #{e.class}: #{e.message}")
+    nil
   end
 
   def search_memory(user_id:, query:)

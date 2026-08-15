@@ -114,15 +114,20 @@ export default function TeachAvatarScreen() {
     const trimmed = content.trim();
     if (!trimmed) return;
     setSaving(true);
-    const { success } = await apiService.teachAvatar(trimmed);
+    const { success, error, sessionExpired } = await apiService.teachAvatar(
+      trimmed,
+      selectedCategory,
+    );
     setSaving(false);
     if (success) {
       setContent('');
       setActiveSuggestion(null);
       Alert.alert('Listo', 'Tu avatar aprendió algo nuevo.');
       fetchManualInsights();
-    } else {
-      Alert.alert('Error', 'No se pudo enseñar al avatar.');
+    } else if (!sessionExpired) {
+      // Surface the server's message (e.g. "No se pudo guardar la
+      // enseñanza...") instead of pretending it worked.
+      Alert.alert('Error', error || 'No se pudo enseñar al avatar.');
     }
   };
 

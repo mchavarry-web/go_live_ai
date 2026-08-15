@@ -9,6 +9,13 @@
 # `appearance` and `behavior` are jsonb columns and accept arbitrary keys;
 # we deep-merge so partial updates don't wipe other fields. `name` is plain.
 class Api::V1::AvatarsController < Api::V1::BaseController
+  # Mirrors FastAPI's InsightCategory enum (apps/ai-agents/app/models/enums.py).
+  # Unknown categories are dropped so FastAPI falls back to its default.
+  TEACH_CATEGORIES = %w[
+    personal_history preference relationship goal emotion health
+    avatar_evolution language_style
+  ].freeze
+
   before_action :load_avatar
 
   def show
@@ -68,13 +75,36 @@ class Api::V1::AvatarsController < Api::V1::BaseController
     render_success(deleted: ok)
   end
 
-  # POST /api/v1/avatar/teach  → manual fact, no chat reply triggered
+  # POST /api/v1/avatar/teach  → manual fact, no chat reply triggered.
+  # Synchronous direct storage (DEV-93/DEV-94): the insight is embedded and
+  # active before we answer, so success here means "retrievable now".
   def teach
     text = params[:message].to_s.strip
     return render_error("Message required", :unprocessable_entity) if text.empty?
 
-    AiAgentsClient.new.teach(user_id: current_user.id.to_s, message: text)
-    render_success(message: "Insight queued for storage")
+    category = params[:category].to_s.presence
+    category = nil unless TEACH_CATEGORIES.include?(category)
+
+    insight = AiAgentsClient.new.teach(
+      user_id: current_user.id.to_s,
+      message: text,
+      category: category
+    )
+
+    if insight.is_a?(Hash) && insight["id"].present?
+      # Bump the Rails-side counter immediately so UIs don't show a stale
+      # zero until the nightly SyncAvatarCountersJob reconciles.
+      Avatar.increment_counter(:insights_count, @avatar.id)
+      render_success(
+        {
+          message: "Enseñanza guardada",
+          insight: insight.slice("id", "category", "content", "confidence", "source", "created_at")
+        },
+        :created
+      )
+    else
+      render_error("No se pudo guardar la enseñanza. Intenta de nuevo.", :bad_gateway)
+    end
   end
 
   private
