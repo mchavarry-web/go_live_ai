@@ -71,7 +71,7 @@ gem "connection_pool", "~> 2.5"
 gem "whenever", require: false
 
 # Environment variables
-gem "dotenv-rails", "~> 3.1.4", require: "dotenv/load"
+gem "dotenv-rails", "~> 3.1.4"
 
 # HTTP client
 gem "httparty", "~> 0.24.2"

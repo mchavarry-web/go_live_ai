@@ -38,3 +38,5 @@
 !/app/assets/builds/.keep
 
 /node_modules
+# Committed exception: test-env DB pin (no secrets) — see DEV-111.
+!/.env.test

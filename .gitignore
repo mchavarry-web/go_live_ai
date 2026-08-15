@@ -25,3 +25,4 @@ node_modules/
 # OS
 Thumbs.db
 /.nova/
+!.env.test
