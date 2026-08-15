@@ -286,7 +286,7 @@ Device tokens & push:
 | `DELETE /api/v1/notifications/device_tokens/:token` | — | deactivate |
 | `POST   /api/v1/notifications/test` | — | dev-only; enqueues a test push to every active token |
 
-`PushNotificationJob(device_token_id:, title:, body:, data:)` posts to FCM legacy `/fcm/send` with `FCM_SERVER_KEY` bearer. When the key is unset the job **logs and returns** — pipeline stays exerciseable without a real FCM project. On FCM `NotRegistered`/`InvalidRegistration` responses the token is auto-deactivated.
+`PushNotificationJob(device_token_id:, title:, body:, data:)` posts to **FCM HTTP v1** (`/v1/projects/<id>/messages:send`) with an OAuth2 service-account token (`googleauth`). Credentials via `GOOGLE_APPLICATION_CREDENTIALS` (path) or `FCM_SERVICE_ACCOUNT_JSON` (inline), optional `FCM_PROJECT_ID` override. When no credentials are set the job **logs and returns** — pipeline stays exerciseable without a real FCM project. On v1 `UNREGISTERED`/`INVALID_ARGUMENT` errors the token is auto-deactivated.
 
 ## Admin panel quick reference
 
