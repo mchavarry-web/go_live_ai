@@ -1,11 +1,19 @@
 # Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+#
+# NOTE: the previous `one: {}` / `two: {}` rows violated the unique index on
+# users.email (both rows fell back to the column default ""). Fixtures bypass
+# model callbacks, so these users have NO avatar/voice_enrollment rows —
+# tests that need the full User.create! side effects should create users
+# directly (see test/support/audio_test_helpers.rb).
 
-# This model initially had no columns defined. If you add columns to the
-# model remove the "{}" from the fixture names and add the columns immediately
-# below each fixture, per the syntax in the comments below
-#
-one: {}
-# column: value
-#
-two: {}
-# column: value
+one:
+  email: fixture-one@example.com
+  encrypted_password: <%= Devise::Encryptor.digest(User, "password123") %>
+  role: user
+  timezone: UTC
+
+two:
+  email: fixture-two@example.com
+  encrypted_password: <%= Devise::Encryptor.digest(User, "password123") %>
+  role: administrator
+  timezone: UTC

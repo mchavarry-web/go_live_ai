@@ -1,0 +1,2 @@
+This is definitely not an audio file. It exists so uploader-validation
+tests can assert that non-audio uploads are rejected with a 422.
