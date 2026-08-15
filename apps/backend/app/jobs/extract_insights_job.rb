@@ -22,6 +22,14 @@ class ExtractInsightsJob < ApplicationJob
       payload:  data
     )
 
+    # DEV-99 — stamp last_extracted_at on the connection when FastAPI
+    # answered with a real payload (error bodies carry "error"/"detail").
+    # Non-destructive merge: metadata also holds raw_data/profile fields.
+    if conn && extraction_succeeded?(response)
+      conn.reload
+      conn.update!(metadata: conn.metadata.merge("last_extracted_at" => Time.current.iso8601))
+    end
+
     # knowledge_level is now a derived method — nothing to mirror in Rails.
     # Insight counts are synced nightly by SyncAvatarCountersJob, but if the
     # response surfaces a count directly, opportunistically bump the avatar.
@@ -32,5 +40,11 @@ class ExtractInsightsJob < ApplicationJob
 
     Rails.logger.info("ExtractInsightsJob: user=#{user.id} provider=#{provider} " \
                       "insights=#{response.is_a?(Hash) ? response['insights']&.size : '?'}")
+  end
+
+  private
+
+  def extraction_succeeded?(response)
+    response.is_a?(Hash) && !response.key?("error") && !response.key?("detail")
   end
 end

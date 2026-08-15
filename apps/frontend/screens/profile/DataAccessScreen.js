@@ -61,6 +61,22 @@ function formatDate(dateStr) {
   });
 }
 
+// Relative "hace X" phrasing for sync timestamps; falls back to the
+// absolute date after a week, and to "nunca" when there is no timestamp.
+function formatRelative(dateStr) {
+  if (!dateStr) return 'nunca';
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  if (Number.isNaN(diffMs)) return 'nunca';
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'hace un momento';
+  if (mins < 60) return `hace ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return days === 1 ? 'hace 1 día' : `hace ${days} días`;
+  return formatDate(dateStr);
+}
+
 function DataRow({ label, value, icon }) {
   return (
     <View style={styles.dataRow}>
@@ -313,6 +329,7 @@ export default function DataAccessScreen({ route }) {
             {PROVIDERS.map((p, idx) => {
               const s = statuses[p.id] || {};
               const connected = !!s.connected;
+              const isStale = !!(s.stale || s.metadata?.stale);
               const isBusy = busyProvider === p.id;
               return (
                 <View key={p.id}>
@@ -322,13 +339,33 @@ export default function DataAccessScreen({ route }) {
                       <Ionicons name={p.icon} size={20} color={p.color} />
                       <View style={styles.socialInfo}>
                         <Text variant="body" color={colors.textPrimary}>{p.name}</Text>
-                        <Text variant="caption" color={colors.textTertiary}>
-                          {connected
-                            ? `${s.insights_count ?? 0} insights · sync ${formatDate(
-                                s.last_synced_at || s.updated_at,
-                              )}`
-                            : 'No conectado'}
-                        </Text>
+                        {connected ? (
+                          <>
+                            <Text variant="caption" color={colors.success}>
+                              Conectado
+                            </Text>
+                            <Text variant="caption" color={colors.textTertiary}>
+                              {`${s.ingested_items_count ?? 0} elementos importados`}
+                            </Text>
+                            <Text variant="caption" color={colors.textTertiary}>
+                              {`Última sincronización: ${formatRelative(s.last_ingested_at)}`}
+                            </Text>
+                            {s.insights_count != null && (
+                              <Text variant="caption" color={colors.textTertiary}>
+                                {`${s.insights_count} datos aprendidos`}
+                              </Text>
+                            )}
+                            {isStale && (
+                              <Text variant="caption" color={colors.warning}>
+                                Vuelve a conectar tu cuenta
+                              </Text>
+                            )}
+                          </>
+                        ) : (
+                          <Text variant="caption" color={colors.textTertiary}>
+                            No conectado
+                          </Text>
+                        )}
                       </View>
                     </View>
                     {connected ? (

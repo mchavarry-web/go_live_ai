@@ -506,7 +506,12 @@ export default function ProfileScreen({ navigation }) {
                         </Text>
                         {connected && s.insights_count > 0 && (
                           <Text variant="caption" color={colors.primary}>
-                            {s.insights_count} insights importados
+                            {s.insights_count} datos aprendidos
+                          </Text>
+                        )}
+                        {connected && !!(s.stale || s.metadata?.stale) && (
+                          <Text variant="caption" color={colors.warning}>
+                            Vuelve a conectar tu cuenta
                           </Text>
                         )}
                       </View>

@@ -40,9 +40,13 @@ class FetchSocialDataJob < ApplicationJob
 
     conn.update!(
       metadata: conn.metadata.merge(
-        "raw_data"     => raw_data,
-        "last_sync_at" => fetched_at.iso8601,
-        "fetched_at"   => fetched_at.iso8601
+        "raw_data"         => raw_data,
+        "last_sync_at"     => fetched_at.iso8601,
+        "fetched_at"       => fetched_at.iso8601,
+        # DEV-99 — surfaced in GET /:provider/status. A successful fetch also
+        # clears any stale flag set by SocialResyncJob.
+        "last_ingested_at" => fetched_at.iso8601,
+        "stale"            => false
       )
     )
 
