@@ -194,6 +194,19 @@ class Settings(BaseSettings):
         description="Default voice id (OpenAI: alloy/echo/fable/onyx/nova/shimmer).",
     )
 
+    # ── Psychological profiling (DEV-98) ────────────────────────────────
+    # Both providers are env-gated: a provider whose key is unset silently
+    # no-ops (logged, no raise). Profiling itself is strictly opt-in and
+    # gated Rails-side via avatar.behavior["psych_profiling_opt_in"].
+    humantic_api_key: SecretStr | None = Field(
+        default=None,
+        description="Humantic AI API key (unset → provider disabled)",
+    )
+    sentino_api_key: SecretStr | None = Field(
+        default=None,
+        description="Sentino API key (unset → provider disabled)",
+    )
+
     # ── Logging ─────────────────────────────────────────────────────────
     log_level: str = "INFO"
 

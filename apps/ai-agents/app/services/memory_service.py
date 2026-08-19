@@ -19,6 +19,7 @@ from app.repositories.conversation_summary_repository import (
 )
 from app.repositories.event_repository import EventRepository
 from app.repositories.insight_repository import InsightRepository
+from app.repositories.psych_profile_repository import PsychProfileRepository
 from app.repositories.user_style_profile_repository import UserStyleProfileRepository
 
 logger = logging.getLogger(__name__)
@@ -455,13 +456,24 @@ class MemoryService:
                 "GDPR: user_style_profile wipe failed for user_id=%s",
                 user_id,
             )
+        psych_count = -1
+        try:
+            psych_count = await PsychProfileRepository(
+                self._session
+            ).delete_by_user_id(user_id)
+        except Exception:
+            logger.exception(
+                "GDPR: psych_profile wipe failed for user_id=%s",
+                user_id,
+            )
         logger.info(
-            "GDPR: Deleted %d insights, %d events, %d summaries, %d transcript chunks, %d style profiles for user_id=%s",
+            "GDPR: Deleted %d insights, %d events, %d summaries, %d transcript chunks, %d style profiles, %d psych profiles for user_id=%s",
             count,
             event_count,
             summary_count,
             transcript_count,
             style_count,
+            psych_count,
             user_id,
         )
         return count

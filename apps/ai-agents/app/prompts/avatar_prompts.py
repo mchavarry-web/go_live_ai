@@ -180,6 +180,125 @@ def _build_mode_section(active_mode: str, mode_message_count: int = 0) -> str:
     return _MODE_AMIGOS
 
 
+# ── Psych profile section (DEV-98) ──────────────────────────────────────
+#
+# Trait tendencies from external profiling providers (Humantic AI /
+# Sentino), strictly opt-in. Sits directly BELOW the mode section: it
+# informs tone but never overrides the mode block's rules.
+
+_PSYCH_TRAIT_LINES: dict[str, tuple[str, str, str]] = {
+    # trait → (low, medium, high) one-line Spanish descriptions.
+    "openness": (
+        "Prefiere lo conocido y concreto; evita divagar en ideas abstractas.",
+        "Se abre a ideas nuevas sin perder el piso práctico.",
+        "Muy abierto/a a ideas nuevas; disfruta explorar temas creativos y abstractos.",
+    ),
+    "conscientiousness": (
+        "Espontáneo/a y flexible; no lo/la agobies con estructura ni planes rígidos.",
+        "Equilibra planificación y espontaneidad.",
+        "Muy organizado/a y orientado/a a metas; valora precisión y compromisos cumplidos.",
+    ),
+    "extraversion": (
+        "Más introvertido/a; prefiere conversaciones tranquilas, sin sobreestimular.",
+        "Alterna entre momentos sociales y de calma.",
+        "Muy extrovertido/a; disfruta la energía social y el intercambio dinámico.",
+    ),
+    "agreeableness": (
+        "Directo/a y competitivo/a; aprecia el debate franco más que la concesión.",
+        "Balancea cooperación con opiniones propias.",
+        "Muy empático/a y cooperativo/a; valora la armonía y el tacto.",
+    ),
+    "neuroticism": (
+        "Emocionalmente estable; tolera bien la presión y las malas noticias.",
+        "Estabilidad emocional media; sensible en momentos de estrés.",
+        "Sensible al estrés; cuidá el tono en temas tensos y ofrecé contención.",
+    ),
+}
+
+_PSYCH_TRAIT_LABELS: dict[str, str] = {
+    "openness": "Apertura",
+    "conscientiousness": "Responsabilidad",
+    "extraversion": "Extraversión",
+    "agreeableness": "Amabilidad",
+    "neuroticism": "Estabilidad emocional",
+}
+
+
+def _build_psych_profile_section(
+    psych_profiles: dict[str, dict] | None,
+) -> str:
+    """Build the psychological-profile section for the system prompt.
+
+    Renders one Spanish line per OCEAN trait describing the tendency
+    (low/medium/high), averaged across providers when both are present.
+    A DISC line is appended when a provider (Humantic) supplied one.
+
+    The section is "uso interno": tone-shaping context the avatar uses
+    silently — never surfaced or quoted to the user. It sits below the
+    mode section and must never override it.
+
+    Args:
+        psych_profiles: Dict of provider → traits, where each traits dict
+            has OCEAN keys as floats 0..1 (+ optional "disc"), or None.
+
+    Returns:
+        A formatted block, or empty string when no profile is stored.
+    """
+    if not psych_profiles:
+        return ""
+
+    # Average each trait across providers that reported it.
+    sums: dict[str, list[float]] = {}
+    disc: dict | None = None
+    for traits in psych_profiles.values():
+        if not isinstance(traits, dict):
+            continue
+        for trait in _PSYCH_TRAIT_LINES:
+            value = traits.get(trait)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                sums.setdefault(trait, []).append(float(value))
+        if disc is None and isinstance(traits.get("disc"), dict):
+            disc = traits["disc"]
+
+    if not sums and not disc:
+        return ""
+
+    lines = [
+        "PERFIL PSICOLÓGICO (uso interno — nunca lo menciones ni lo cites):"
+    ]
+    for trait in _PSYCH_TRAIT_LINES:
+        values = sums.get(trait)
+        if not values:
+            continue
+        avg = sum(values) / len(values)
+        low, medium, high = _PSYCH_TRAIT_LINES[trait]
+        if avg < 0.35:
+            description = low
+        elif avg <= 0.65:
+            description = medium
+        else:
+            description = high
+        lines.append(f"- {_PSYCH_TRAIT_LABELS[trait]}: {description}")
+
+    if disc:
+        dominant = max(disc, key=lambda k: disc[k])
+        disc_labels = {
+            "d": "dominancia (directo/a, orientado/a a resultados)",
+            "i": "influencia (sociable, persuasivo/a)",
+            "s": "estabilidad (paciente, constante)",
+            "c": "cumplimiento (analítico/a, meticuloso/a)",
+        }
+        label = disc_labels.get(str(dominant).lower())
+        if label:
+            lines.append(f"- Estilo DISC dominante: {label}.")
+
+    lines.append(
+        "Usá estas tendencias solo para calibrar tu tono y enfoque. "
+        "El MODO ACTIVO siempre tiene prioridad sobre este perfil."
+    )
+    return "\n".join(lines)
+
+
 def _build_persona_section(persona_insights: list[str] | None) -> str:
     """Build the avatar's own evolving persona section for the system prompt.
 
@@ -681,6 +800,7 @@ def build_avatar_system_prompt(
     prior_summary: str | None = None,
     transcript_quotes: list[str] | None = None,
     agent_identity: str | None = None,
+    psych_profiles: dict[str, dict] | None = None,
 ) -> str:
     """Build the full avatar system prompt from user profile and context.
 
@@ -732,6 +852,7 @@ def build_avatar_system_prompt(
     agent_identity_section = _build_agent_identity_section(
         agent_identity, display_name
     )
+    psych_profile_section = _build_psych_profile_section(psych_profiles)
     formality_directive_section = _build_formality_directive_section(
         formality_level=formality_level,
         active_mode=active_mode,
@@ -772,6 +893,7 @@ def build_avatar_system_prompt(
         "summary_section": summary_section,
         "transcript_quotes_section": transcript_quotes_section,
         "agent_identity_section": agent_identity_section,
+        "psych_profile_section": psych_profile_section,
     }
 
     def _format_with(template_str: str, **extra: str | int) -> str:
@@ -801,6 +923,7 @@ def build_avatar_system_prompt(
             summary_section=summary_section,
             transcript_quotes_section=transcript_quotes_section,
             agent_identity_section=agent_identity_section,
+            psych_profile_section=psych_profile_section,
         )
     except KeyError as exc:
         missing = str(exc).strip("'")

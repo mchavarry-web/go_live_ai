@@ -279,6 +279,30 @@ class AiAgentsClient
     response.parsed_response
   end
 
+  # ── Psychological profiling (DEV-98) ──────────────────────────────────
+
+  # Runs the external profiling providers (Humantic AI / Sentino) over the
+  # supplied corpus and/or LinkedIn URL. Env-gated on the FastAPI side: a
+  # provider with no API key configured is skipped and reported in the
+  # response's `errors` hash, so this is safe to call with no keys set.
+  #
+  # Returns { "user_id", "profiles" => {provider => traits|nil},
+  #           "errors" => {provider => reason} } or nil on failure.
+  def run_psych_profiling(user_id:, text_corpus: nil, linkedin_url: nil)
+    body = { user_id: user_id.to_s }
+    body[:text_corpus]  = text_corpus  if text_corpus.present?
+    body[:linkedin_url] = linkedin_url if linkedin_url.present?
+    post_json("/internal/profile/psych", body, timeout: 120)
+  rescue StandardError => e
+    Rails.logger.warn("[ai-client] run_psych_profiling failed user=#{user_id}: #{e.class}: #{e.message}")
+    nil
+  end
+
+  # → { "user_id", "profiles" => {provider => {traits, source_summary, ...}} }
+  def psych_profiles(user_id)
+    self.class.get("/internal/profile/psych/#{user_id}").parsed_response
+  end
+
   # ── Health ────────────────────────────────────────────────────────────
 
   def health_ok?

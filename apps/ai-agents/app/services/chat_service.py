@@ -39,6 +39,7 @@ from app.prompts.event_humanizer import serialize_events_for_prompt
 from app.prompts.proactive_greeting import build_proactive_system_prompt
 from app.repositories.audio_transcript_repository import AudioTranscriptRepository
 from app.repositories.event_repository import EventRepository
+from app.repositories.psych_profile_repository import PsychProfileRepository
 from app.repositories.user_style_profile_repository import UserStyleProfileRepository
 from app.services.conversation_summary_service import ConversationSummaryService
 from app.services.event_service import EventService
@@ -147,6 +148,7 @@ class ChatService:
         upcoming_events: list | None = None,
         prior_summary: str | None = None,
         transcript_quotes: list[str] | None = None,
+        psych_profiles: dict[str, dict] | None = None,
     ) -> dict:
         """Extract user profile dict from the API request.
 
@@ -193,6 +195,7 @@ class ChatService:
             "upcoming_events": events_payload,
             "prior_summary": prior_summary,
             "transcript_quotes": transcript_quotes or [],
+            "psych_profiles": psych_profiles,
             "active_mode": profile.active_mode,
             "mode_message_count": profile.mode_message_count,
         }
@@ -349,6 +352,37 @@ class ChatService:
                 exc_info=True,
             )
             return []
+
+    async def _get_psych_profiles(
+        self,
+        user_id: str,
+        session: Optional[AsyncSession] = None,
+    ) -> dict[str, dict] | None:
+        """Fetch stored psychological trait profiles (DEV-98).
+
+        Chat-time read-only lookup of rows previously written by
+        ``POST /internal/profile/psych`` — NO provider calls happen here.
+        Returns {provider: traits} for rows with a traits payload, or
+        None when no session, no rows, or on any error (non-fatal: the
+        prompt builder simply omits the section).
+        """
+        if not session:
+            return None
+        try:
+            rows = await PsychProfileRepository(session).list_for_user(user_id)
+            profiles = {
+                row.provider: row.traits
+                for row in rows
+                if isinstance(row.traits, dict) and row.traits
+            }
+            return profiles or None
+        except Exception:
+            logger.warning(
+                "Failed to retrieve psych profiles for user_id=%s",
+                user_id,
+                exc_info=True,
+            )
+            return None
 
     async def _get_prior_summary(
         self,
@@ -850,6 +884,7 @@ class ChatService:
             upcoming_events=mem.upcoming_events,
             prior_summary=mem.prior_summary,
             transcript_quotes=mem.transcript_quotes,
+            psych_profiles=mem.psych_profiles,
         )
 
         # Step 3: Generate response. When a prior summary is in play, the
@@ -1190,6 +1225,7 @@ class ChatService:
             upcoming_events=mem.upcoming_events,
             prior_summary=mem.prior_summary,
             transcript_quotes=mem.transcript_quotes,
+            psych_profiles=mem.psych_profiles,
         )
 
         history_for_stream = _maybe_truncate_history(
@@ -1558,6 +1594,7 @@ class _MemoryContext:
         "upcoming_events",
         "prior_summary",
         "transcript_quotes",
+        "psych_profiles",
     )
 
     def __init__(
@@ -1569,6 +1606,7 @@ class _MemoryContext:
         upcoming_events: list | None = None,
         prior_summary: str | None = None,
         transcript_quotes: list[str] | None = None,
+        psych_profiles: dict[str, dict] | None = None,
     ) -> None:
         self.memory_insights = memory_insights
         self.persona_insights = persona_insights
@@ -1577,6 +1615,7 @@ class _MemoryContext:
         self.upcoming_events = upcoming_events or []
         self.prior_summary = prior_summary
         self.transcript_quotes = transcript_quotes or []
+        self.psych_profiles = psych_profiles
 
 
 async def _gather_memory(
@@ -1587,9 +1626,9 @@ async def _gather_memory(
     active_mode: str = "friends",
     conversation_id: str | None = None,
 ) -> _MemoryContext:
-    """Fetch insights, persona notes, language style, events, and prior summary.
+    """Fetch insights, persona notes, language style, events, summary, quotes, and psych profiles.
 
-    Five concurrent retrievals; each degrades to a None/empty default on
+    Seven concurrent retrievals; each degrades to a None/empty default on
     failure so a single subsystem outage cannot break chat generation.
 
     Args:
@@ -1616,6 +1655,7 @@ async def _gather_memory(
         service._get_relevant_transcript_quotes(
             user_id=user_id, message=message, session=session
         ),
+        service._get_psych_profiles(user_id=user_id, session=session),
         return_exceptions=True,
     )
     memory_insights = results[0] if not isinstance(results[0], BaseException) else None
@@ -1629,6 +1669,7 @@ async def _gather_memory(
     upcoming_events = results[3] if not isinstance(results[3], BaseException) else []
     prior_summary = results[4] if not isinstance(results[4], BaseException) else None
     transcript_quotes = results[5] if not isinstance(results[5], BaseException) else []
+    psych_profiles = results[6] if not isinstance(results[6], BaseException) else None
 
     return _MemoryContext(
         memory_insights=memory_insights,
@@ -1638,4 +1679,5 @@ async def _gather_memory(
         upcoming_events=upcoming_events,
         prior_summary=prior_summary,
         transcript_quotes=transcript_quotes,
+        psych_profiles=psych_profiles,
     )

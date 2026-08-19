@@ -35,6 +35,11 @@ Rails.application.routes.draw do
       get  "settings/features", to: "feature_settings#index"
       post "settings/features", to: "feature_settings#update"
 
+      # Psychological profiling (DEV-98 — strictly opt-in via
+      # avatar.behavior["psych_profiling_opt_in"]; env-gated in FastAPI)
+      post "profile/psych", to: "psych_profiles#create"
+      get  "profile/psych", to: "psych_profiles#show"
+
       # Chat
       scope "chat" do
         resources :conversations, only: %i[index show create destroy] do

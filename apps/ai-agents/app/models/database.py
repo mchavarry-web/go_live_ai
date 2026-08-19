@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, Boolean, DateTime, Float, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -352,6 +352,71 @@ class UserStyleProfileModel(Base):
             f"<UserStyleProfileModel(user_id={self.user_id!r}, "
             f"formality={self.formality_level}, "
             f"emoji={self.emoji_frequency!r})>"
+        )
+
+
+class PsychProfileModel(Base):
+    """Psychological profile from an external provider (DEV-98, 2026-08-15).
+
+    Strictly opt-in (Rails gates on ``avatar.behavior["psych_profiling_opt_in"]``)
+    and env-gated: with no provider API keys configured the service no-ops.
+    One *current* row per (user_id, provider) — writes are upserts, the
+    previous provider response is overwritten, never versioned.
+
+    Attributes:
+        id: UUID primary key.
+        user_id: Foreign reference to the Rails User id.
+        provider: Profiling provider id — "humantic" or "sentino".
+        traits: Normalized trait dict. Always the same shape regardless of
+            provider: OCEAN big-five floats in 0..1
+            ({openness, conscientiousness, extraversion, agreeableness,
+            neuroticism}) plus an optional ``disc`` sub-dict (Humantic only).
+        raw: Verbatim provider response for audit / re-normalization.
+        source_summary: Short human note about what was analyzed
+            (e.g. "text_corpus:8450 chars" or "linkedin:<url>").
+        created_at: Insert timestamp.
+        updated_at: Last upsert timestamp.
+    """
+
+    __tablename__ = "psych_profiles"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        primary_key=True,
+        default=lambda: str(uuid4()),
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        index=True,
+    )
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)
+    traits: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    raw: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    source_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        onupdate=func.now(),
+        nullable=True,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_psych_profiles_user_provider",
+            "user_id",
+            "provider",
+            unique=True,
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<PsychProfileModel(user_id={self.user_id!r}, "
+            f"provider={self.provider!r})>"
         )
 
 

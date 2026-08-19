@@ -178,6 +178,7 @@ class AvatarChain:
             last_location=user_profile.get("last_location"),
             prior_summary=user_profile.get("prior_summary"),
             transcript_quotes=user_profile.get("transcript_quotes"),
+            psych_profiles=user_profile.get("psych_profiles"),
         )
 
     @traceable(name="avatar_generate", run_type="chain")
