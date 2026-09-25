@@ -19,7 +19,7 @@ class PsychProfileJob < ApplicationJob
   TRANSCRIPT_LIMIT = 50
   MAX_CORPUS_CHARS = 20_000
 
-  def perform(user_id:, linkedin_url: nil)
+  def perform(user_id:, linkedin_url: nil, providers: nil)
     user = User.find(user_id)
 
     unless user.avatar&.behavior&.dig("psych_profiling_opt_in") == true
@@ -36,7 +36,8 @@ class PsychProfileJob < ApplicationJob
     response = AiAgentsClient.new.run_psych_profiling(
       user_id:      user.id.to_s,
       text_corpus:  corpus.presence,
-      linkedin_url: linkedin_url
+      linkedin_url: linkedin_url,
+      providers:    providers
     )
 
     unless response.is_a?(Hash)

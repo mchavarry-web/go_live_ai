@@ -11,6 +11,7 @@
 #   POST /api/v1/profile/psych  → 202, enqueues PsychProfileJob
 #   GET  /api/v1/profile/psych  → stored per-provider profiles (proxied)
 class Api::V1::PsychProfilesController < Api::V1::BaseController
+  VALID_PROVIDERS = %w[humantic sentino].freeze
   OPT_IN_ERROR = "No has activado el perfil psicológico. " \
                  "Actívalo primero desde la configuración de tu avatar."
 
@@ -18,12 +19,23 @@ class Api::V1::PsychProfilesController < Api::V1::BaseController
 
   # POST /api/v1/profile/psych
   # Optional param: linkedin_url (Humantic can analyze a public profile).
+  # Optional param: providers ([] or comma-separated string) with any subset
+  # of: humantic, sentino.
   # The text corpus is built server-side by the job from the user's own
   # messages and audio transcripts — never accepted from the client.
   def create
+    providers, invalid = normalize_providers(params[:providers])
+    if invalid.any?
+      return render_error(
+        "Providers inválidos: #{invalid.join(', ')}. Usa: #{VALID_PROVIDERS.join(', ')}.",
+        :unprocessable_entity
+      )
+    end
+
     PsychProfileJob.perform_later(
       user_id:      current_user.id.to_s,
-      linkedin_url: params[:linkedin_url].presence
+      linkedin_url: params[:linkedin_url].presence,
+      providers:    providers
     )
     render_success(
       { message: "Perfil psicológico en proceso. Estará disponible en unos minutos." },
@@ -46,5 +58,20 @@ class Api::V1::PsychProfilesController < Api::V1::BaseController
   def ensure_opted_in!
     opted_in = current_user.avatar&.behavior&.dig("psych_profiling_opt_in") == true
     render_error(OPT_IN_ERROR, :forbidden) unless opted_in
+  end
+
+  def normalize_providers(raw)
+    values = case raw
+             when nil
+               []
+             when String
+               raw.split(",")
+             else
+               Array(raw)
+             end
+
+    values = values.map { |value| value.to_s.strip.downcase }.reject(&:blank?).uniq
+    invalid = values - VALID_PROVIDERS
+    [values.presence, invalid]
   end
 end

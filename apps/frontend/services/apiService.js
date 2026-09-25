@@ -64,14 +64,14 @@ class ApiService {
       if (!response.ok) {
         if (response.status === 401) {
           // A 401 on a credential-exchange endpoint (explicit sign in / up /
-          // provider / token refresh) is a login failure — surface a clean
+          // provider / token refresh) is a login failure â€” surface a clean
           // message for the form, but do NOT trigger a global logout.
           if (AUTH_ENDPOINTS.some((p) => endpoint.startsWith(p))) {
-            throw new Error(data.error || 'Credenciales inválidas.');
+            throw new Error(data.error || 'Credenciales invÃ¡lidas.');
           }
           // A 401 on any other (authenticated) endpoint means the stored
           // token is expired/invalid: silently clear auth so the navigator
-          // redirects to login. No user-facing alert — just return a benign
+          // redirects to login. No user-facing alert â€” just return a benign
           // sentinel (error: null) so callers don't pop an error dialog.
           if (this.logoutCallback) this.logoutCallback();
           return { success: false, sessionExpired: true, error: null };
@@ -89,7 +89,7 @@ class ApiService {
     }
   }
 
-  // ── Auth ──────────────────────────────────────────────────────────
+  // â”€â”€ Auth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async signIn(email, password) {
     return this.request('/auth/sign_in', {
       method: 'POST',
@@ -145,7 +145,7 @@ class ApiService {
     return this.request('/auth/sign_out', { method: 'DELETE' });
   }
 
-  // ── Avatar (appearance + behavior) ───────────────────────────────
+  // â”€â”€ Avatar (appearance + behavior) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async getAvatar() {
     return this.request('/avatar');
   }
@@ -176,6 +176,20 @@ class ApiService {
     return this.request('/avatar/insights', { method: 'DELETE' });
   }
 
+  async runPsychProfile({ linkedinUrl, providers } = {}) {
+    const body = {};
+    if (linkedinUrl) body.linkedin_url = linkedinUrl;
+    if (Array.isArray(providers) && providers.length > 0) body.providers = providers;
+    return this.request('/profile/psych', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async getPsychProfile() {
+    return this.request('/profile/psych');
+  }
+
   async teachAvatar(message, category) {
     const body = { message };
     if (category) body.category = category;
@@ -189,7 +203,7 @@ class ApiService {
     return this.request(`/${provider}`, { method: 'DELETE' });
   }
 
-  // ── Onboarding ───────────────────────────────────────────────────
+  // â”€â”€ Onboarding â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async getOnboardingStatus() {
     return this.request('/onboarding/status');
   }
@@ -209,7 +223,7 @@ class ApiService {
     return this.request('/onboarding/reset', { method: 'POST' });
   }
 
-  // ── Chat ─────────────────────────────────────────────────────────
+  // â”€â”€ Chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async listConversations() {
     return this.request('/chat/conversations');
   }
@@ -228,7 +242,7 @@ class ApiService {
   // Cursor-paginated message history (DEV-95). Without params Rails returns
   // the LATEST `limit` (default 30) messages; pass `before` (a message id)
   // to fetch the page strictly older than that message. Response:
-  // { messages: [...oldest→newest...], has_more: bool }.
+  // { messages: [...oldestâ†’newest...], has_more: bool }.
   async getMessages(conversationId, { before, limit } = {}) {
     const parts = [];
     if (before) parts.push(`before=${encodeURIComponent(before)}`);
@@ -239,7 +253,7 @@ class ApiService {
 
   async postMessage(conversationId, content) {
     // Stamp the moment the client clicked Send so the backend can log
-    // app→API latency on the assistant message metadata.telemetry.
+    // appâ†’API latency on the assistant message metadata.telemetry.
     const clientSentAt = new Date().toISOString();
     return this.request(`/chat/conversations/${conversationId}/messages`, {
       method: 'POST',
@@ -311,7 +325,7 @@ class ApiService {
     });
   }
 
-  // ── Social connections (flat per-platform) ───────────────────────
+  // â”€â”€ Social connections (flat per-platform) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async socialStatus(provider) {
     return this.request(`/${provider}/status`);
   }
@@ -331,8 +345,8 @@ class ApiService {
     return this.request('/spotify/auth_url');
   }
 
-  // ── Audio training ───────────────────────────────────────────────
-  // Endpoints under /api/v1/audio/* — see AUDIO_TRAINING_PLAN.md.
+  // â”€â”€ Audio training â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Endpoints under /api/v1/audio/* â€” see AUDIO_TRAINING_PLAN.md.
   // Sessions are JSON; chunk uploads are multipart with an Idempotency-Key
   // header so retries from the offline queue are safe.
   async listAudioSessions() {
@@ -395,7 +409,7 @@ class ApiService {
     });
 
     const controller = new AbortController();
-    // Chunk uploads can be slow on bad networks — give them 5x the default.
+    // Chunk uploads can be slow on bad networks â€” give them 5x the default.
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT * 5);
 
     try {
@@ -428,7 +442,7 @@ class ApiService {
     return this.request('/audio/voice_enrollment', { method: 'DELETE' });
   }
 
-  // Multipart enrollment — both phrases captured in one request.
+  // Multipart enrollment â€” both phrases captured in one request.
   async submitVoiceEnrollment({ startUri, stopUri, startText, stopText, mime = 'audio/m4a' }) {
     const url = `${API_URL}/audio/voice_enrollment`;
     const headers = await this.getAuthHeaders(true);
@@ -464,7 +478,7 @@ class ApiService {
     }
   }
 
-  // ── Device tokens ────────────────────────────────────────────────
+  // â”€â”€ Device tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async registerDeviceToken({ token, platform, metadata }) {
     return this.request('/notifications/device_tokens', {
       method: 'POST',

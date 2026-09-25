@@ -15,14 +15,14 @@ class AiAgentsClient
   headers "X-Internal-Token" => ENV.fetch("AI_AGENTS_INTERNAL_TOKEN", "")
   default_timeout 30
 
-  # ── Chat ──────────────────────────────────────────────────────────────
+  # â”€â”€ Chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   # @param payload [Hash] ChatRequest shape (see apps/ai-agents/app/models/schemas.py)
   def generate_chat(payload)
     post_json("/internal/chat/generate", payload, timeout: 90)
   end
 
-  # Wave B.4 (2026-05-06) — durable post-turn learning. Called by
+  # Wave B.4 (2026-05-06) â€” durable post-turn learning. Called by
   # PostTurnLearningJob after the assistant Message has been persisted.
   # Returns a Hash with insights_new / events_new / persona_notes /
   # summary_written / slang_calibrated / took_ms keys (LearnResponse).
@@ -83,11 +83,11 @@ class AiAgentsClient
     post_json("/internal/chat/proactive-generate", payload, timeout: 60)
   end
 
-  # ── Insights / memory ─────────────────────────────────────────────────
+  # â”€â”€ Insights / memory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   # FastAPI exposes one endpoint per platform shape, not a single generic one.
-  #   instagram → /internal/insights/extract-instagram
-  #   facebook|twitter|spotify → /internal/insights/extract-social
+  #   instagram â†’ /internal/insights/extract-instagram
+  #   facebook|twitter|spotify â†’ /internal/insights/extract-social
   # Rails normalises this so callers just pass `platform:`.
   def extract_insights(platform:, user_id:, payload:)
     path = case platform
@@ -105,12 +105,12 @@ class AiAgentsClient
   end
 
   def insight_categories(user_id)
-    # → {user_id, counts: {category => n}, total}
+    # â†’ {user_id, counts: {category => n}, total}
     self.class.get("/internal/memory/#{user_id}/categories").parsed_response
   end
 
   def insight_sources(user_id)
-    # → {user_id, sources: {source => n}, total}
+    # â†’ {user_id, sources: {source => n}, total}
     self.class.get("/internal/memory/#{user_id}/sources").parsed_response
   end
 
@@ -133,7 +133,7 @@ class AiAgentsClient
   # Direct manual-fact storage (DEV-93). Hits FastAPI's teach route, which
   # embeds the text and stores an ACTIVE insight (source: manual,
   # confidence 1.0) so it is immediately retrievable by chat-time semantic
-  # search — unlike /internal/insights/extract, whose LLM chain can
+  # search â€” unlike /internal/insights/extract, whose LLM chain can
   # legitimately store nothing (confidence floors, dedupe, quota errors).
   #
   # Returns the stored Insight hash ({id, user_id, category, content,
@@ -164,7 +164,7 @@ class AiAgentsClient
     post_json("/internal/memory/search", { user_id: user_id, query: query })
   end
 
-  # ── Audio ─────────────────────────────────────────────────────────────
+  # â”€â”€ Audio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   # Stream chunk bytes to FastAPI for transcription. We send a multipart
   # POST so dev (FileSystem Shrine) and prod (S3 Shrine) work identically.
@@ -279,7 +279,7 @@ class AiAgentsClient
     response.parsed_response
   end
 
-  # ── Psychological profiling (DEV-98) ──────────────────────────────────
+  # â”€â”€ Psychological profiling (DEV-98) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   # Runs the external profiling providers (Humantic AI / Sentino) over the
   # supplied corpus and/or LinkedIn URL. Env-gated on the FastAPI side: a
@@ -288,22 +288,25 @@ class AiAgentsClient
   #
   # Returns { "user_id", "profiles" => {provider => traits|nil},
   #           "errors" => {provider => reason} } or nil on failure.
-  def run_psych_profiling(user_id:, text_corpus: nil, linkedin_url: nil)
+  # Optional `providers` narrows execution to a subset such as
+  # %w[humantic sentino].
+  def run_psych_profiling(user_id:, text_corpus: nil, linkedin_url: nil, providers: nil)
     body = { user_id: user_id.to_s }
     body[:text_corpus]  = text_corpus  if text_corpus.present?
     body[:linkedin_url] = linkedin_url if linkedin_url.present?
+    body[:providers]    = providers    if providers.present?
     post_json("/internal/profile/psych", body, timeout: 120)
   rescue StandardError => e
     Rails.logger.warn("[ai-client] run_psych_profiling failed user=#{user_id}: #{e.class}: #{e.message}")
     nil
   end
 
-  # → { "user_id", "profiles" => {provider => {traits, source_summary, ...}} }
+  # â†’ { "user_id", "profiles" => {provider => {traits, source_summary, ...}} }
   def psych_profiles(user_id)
     self.class.get("/internal/profile/psych/#{user_id}").parsed_response
   end
 
-  # ── Health ────────────────────────────────────────────────────────────
+  # â”€â”€ Health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   def health_ok?
     self.class.get("/health", timeout: 2).code == 200
@@ -314,13 +317,13 @@ class AiAgentsClient
   private
 
   # FastAPI emits SSE frames of the form:
-  #   data: {"token": "<text>"}\n\n         → token chunk
-  #   data: {"telemetry": {...}}\n\n         → final hop-timestamps payload
-  #   data: {"error": "..."}\n\n             → upstream error
-  #   data: [DONE]\n\n                       → end-of-stream sentinel
+  #   data: {"token": "<text>"}\n\n         â†’ token chunk
+  #   data: {"telemetry": {...}}\n\n         â†’ final hop-timestamps payload
+  #   data: {"error": "..."}\n\n             â†’ upstream error
+  #   data: [DONE]\n\n                       â†’ end-of-stream sentinel
   # Return value:
-  #   String "" (empty/done/error frames — caller skips)
-  #   String "..." (legacy plain-text frames — content)
+  #   String "" (empty/done/error frames â€” caller skips)
+  #   String "..." (legacy plain-text frames â€” content)
   #   Hash { kind: :token,     text: "..." }
   #   Hash { kind: :telemetry, data: {...}  }
   def parse_sse_frame(frame)
@@ -338,7 +341,7 @@ class AiAgentsClient
       end
       return { kind: :telemetry, data: parsed["telemetry"] } if parsed.key?("telemetry")
       return { kind: :token,     text: parsed["token"].to_s } if parsed.key?("token")
-      # Upstream (FastAPI) reported a generation failure mid-stream — surface
+      # Upstream (FastAPI) reported a generation failure mid-stream â€” surface
       # the reason so the caller can broadcast it instead of a blank "empty
       # response". Not appended to the assistant text.
       return { kind: :error, message: parsed["error"].to_s } if parsed.key?("error")
